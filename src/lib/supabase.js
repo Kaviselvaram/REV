@@ -1,16 +1,17 @@
-import { createClient } from '@supabase/supabase-js'
-
 /* ---------------------------------------------------------------------------
-   Supabase client.
+   Supabase client — loaded on demand, not at startup.
+
+   The SDK is roughly 220 kB of the bundle. Imported statically it sits on the
+   critical path, so nothing renders until it has been downloaded and parsed —
+   on a mid-range Android over mobile data that is a visible delay before the
+   first frame. Nothing on the opening screen needs it: the session restore
+   runs in an effect, which fires after paint. So it is imported dynamically
+   and the first frame ships without it.
 
    The key here is the publishable key, which is meant to ship in a browser
    bundle — it grants nothing on its own. Every read and write is decided by
    row-level security against the caller's JWT. The service-role key bypasses
    RLS and must never reach this file.
-
-   `isConfigured` lets the app run without a backend at all: when the env vars
-   are absent the UI falls back to the in-memory prototype data, so a missing
-   .env.local degrades to the old behaviour rather than a white screen.
    --------------------------------------------------------------------------- */
 
 const url = import.meta.env.VITE_SUPABASE_URL
@@ -38,17 +39,27 @@ if (!isConfigured && import.meta.env.DEV) {
   )
 }
 
-export const supabase = isConfigured
-  ? createClient(url, key, {
-      auth: {
-        persistSession: true,
-        autoRefreshToken: true,
-        detectSessionInUrl: false, // phone OTP, no magic-link redirects
-        storageKey: 'rev.auth',
-      },
-      global: { headers: { 'x-application-name': 'rev-web' } },
-    })
-  : null
+let clientPromise = null
+
+// Returns the singleton client, creating it (and fetching the SDK) on the
+// first call. Concurrent callers share one in-flight import.
+export function getClient() {
+  if (!isConfigured) return Promise.resolve(null)
+  if (!clientPromise) {
+    clientPromise = import('@supabase/supabase-js').then(({ createClient }) =>
+      createClient(url, key, {
+        auth: {
+          persistSession: true,
+          autoRefreshToken: true,
+          detectSessionInUrl: false, // phone OTP, no magic-link redirects
+          storageKey: 'rev.auth',
+        },
+        global: { headers: { 'x-application-name': 'rev-web' } },
+      }),
+    )
+  }
+  return clientPromise
+}
 
 /* Postgres error codes our functions raise deliberately, mapped to language a
    member should actually see. Anything unrecognised gets a neutral message —

@@ -1,14 +1,19 @@
-import { useEffect, useRef, useState } from 'react'
+import { Suspense, lazy, useEffect, useRef, useState } from 'react'
 import Lenis from 'lenis'
 import Selector from './screens/Selector'
 import Landing from './screens/Landing'
-import Garage from './screens/Garage'
-import MeetsFeed from './screens/MeetsFeed'
-import RideDetail from './screens/RideDetail'
-import Recap from './screens/Recap'
-import Login from './screens/Login'
-import Account from './screens/Account'
-import Legal from './screens/Legal'
+
+/* Only the selector and the landing are needed for first paint. Everything
+   else is fetched when the member actually navigates to it, which keeps the
+   opening bundle small — the difference between instant and sluggish on a
+   mid-range Android over patchy mobile data, which is most of this audience. */
+const Garage     = lazy(() => import('./screens/Garage'))
+const MeetsFeed  = lazy(() => import('./screens/MeetsFeed'))
+const RideDetail = lazy(() => import('./screens/RideDetail'))
+const Recap      = lazy(() => import('./screens/Recap'))
+const Login      = lazy(() => import('./screens/Login'))
+const Account    = lazy(() => import('./screens/Account'))
+const Legal      = lazy(() => import('./screens/Legal'))
 import Cursor from './components/Cursor'
 import ErrorBoundary from './components/ErrorBoundary'
 import { NotFound } from './components/States'
@@ -18,7 +23,7 @@ import { ModeProvider, useMode } from './lib/mode'
 import { UserContext, useUser } from './lib/user'
 import { isConfigured } from './lib/supabase'
 import * as api from './lib/api'
-import { currentUser, ACCENTS, IMG } from './data/mock'
+import { ACCENTS, IMG } from './data/mock'
 
 function ScrollProgress() {
   const ref = useScrollProgress()
@@ -278,7 +283,7 @@ export default function App() {
         const session = await api.getSession()
         if (!alive || !session) return
         sessionRef.current = session
-        setSession(session)
+        setSession((prev) => (prev?.access_token === session?.access_token ? prev : session))
         const [me, cars] = await Promise.all([
           api.getMyProfile(session),
           api.getMyVehicles(session),
@@ -291,6 +296,25 @@ export default function App() {
       }
     })()
     return () => { alive = false }
+  }, [])
+
+  // A session can end somewhere else — another tab signing out, or the refresh
+  // token expiring. Without this the UI keeps showing a signed-in shell whose
+  // every request then fails.
+  useEffect(() => {
+    if (!isConfigured) return
+    return api.onAuthChange((s) => {
+      sessionRef.current = s
+      // Keep the previous object when the token has not actually changed, so
+      // downstream memos and effects do not see a new identity for the same
+      // session and refetch.
+      setSession((prev) =>
+        prev?.access_token === s?.access_token ? prev : s)
+      if (!s) {
+        setProfile(null)
+        setGarage({ bike: null, car: null })
+      }
+    })
   }, [])
 
   // Gate an action behind sign-in: runs immediately if verified, else opens the
@@ -326,6 +350,16 @@ export default function App() {
     setGarage({ bike: null, car: null })
   }
 
+  // Actually erases the account. This used to call signOut, which meant the
+  // confirmation promised erasure and delivered a logout.
+  const deleteAccount = async () => {
+    if (isConfigured) await api.deleteAccount()
+    sessionRef.current = null
+    setSession(null)
+    setProfile(null)
+    setGarage({ bike: null, car: null })
+  }
+
   const updateProfile = (patch) => {
     setProfile((p) => (p ? { ...p, ...patch } : p)) // optimistic
     if (isConfigured && sessionRef.current) {
@@ -346,7 +380,7 @@ export default function App() {
   const getVehicle = (m) => garage[m]
   const userValue = {
     signedIn, profile, session, phone: profile?.phone ?? '',
-    requireAuth, signOut, updateProfile,
+    requireAuth, signOut, deleteAccount, updateProfile,
     garage, saveVehicle, getVehicle,
   }
 
@@ -415,7 +449,11 @@ export default function App() {
           </ModeProvider>
         )}
       </ErrorBoundary>
-      {authOpen && <Login onDone={resolveAuth} onClose={() => { authCbRef.current = null; setAuthOpen(false) }} />}
+      {authOpen && (
+        <Suspense fallback={null}>
+          <Login onDone={resolveAuth} onClose={() => { authCbRef.current = null; setAuthOpen(false) }} />
+        </Suspense>
+      )}
     </UserContext.Provider>
   )
 }
@@ -432,6 +470,7 @@ function AppShell({ mode, nav, go, onToggleMode, onSignIn }) {
   return (
     <div className={`grain min-h-screen mode-${mode}`} style={{ '--accent': ACCENTS[mode] }}>
       {inApp && <InAppHeader nav={nav} go={go} onToggleMode={onToggleMode} onSignIn={onSignIn} />}
+      <Suspense fallback={<ScreenFallback />}>
 
       {nav.screen === 'landing' && (
         <Landing key={`landing-${mode}`} onEnter={() => go('garage')} onGo={go} onToggleMode={onToggleMode} />
@@ -458,6 +497,14 @@ function AppShell({ mode, nav, go, onToggleMode, onSignIn }) {
           )}
         </>
       )}
+      </Suspense>
     </div>
   )
+}
+
+/* Holds the header's height so the page does not jump while a screen chunk
+   arrives. Deliberately blank rather than a spinner — at these sizes the wait
+   is usually a single frame, and a spinner would flash. */
+function ScreenFallback() {
+  return <div className="min-h-[60vh]" aria-busy="true" />
 }

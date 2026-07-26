@@ -1,4 +1,4 @@
-import { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react'
+import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react'
 import { getModeBundle } from '../data/mock'
 import { isConfigured } from './supabase'
 import * as api from './api'
@@ -13,9 +13,15 @@ const ModeContext = createContext(null)
 export function ModeProvider({ mode, session, children }) {
   const bundle = useMemo(() => getModeBundle(mode), [mode])
   const live = isConfigured && !!session
+  // A refreshed token produces a new session object for the same member. Key
+  // the data effects on the member id so a token refresh does not refetch.
+  const uid = session?.user?.id ?? null
 
   const [rides, setRides] = useState(live ? [] : bundle.rides)
   const [directory, setDirectory] = useState(null) // real members, when live
+  const directoryRef = useRef(null)
+  const sessionRef = useRef(session)
+  sessionRef.current = session
   const [loading, setLoading] = useState(live)
   const [error, setError] = useState(null)
 
@@ -23,18 +29,24 @@ export function ModeProvider({ mode, session, children }) {
     if (!live) return
     setError(null)
     try {
+      // The member directory is per-world and does not change when someone
+      // RSVPs, so it is only fetched when it is missing.
       const [rows, dir] = await Promise.all([
-        api.listRides(mode, session),
-        api.listMembers(mode),
+        api.listRides(mode, sessionRef.current),
+        directoryRef.current ? Promise.resolve(directoryRef.current) : api.listMembers(mode),
       ])
       setRides(rows)
+      directoryRef.current = dir
       setDirectory(dir)
     } catch (e) {
       setError(e.message)
     } finally {
       setLoading(false)
     }
-  }, [live, mode, session])
+    // sessionRef is read through a ref-like closure on purpose: only the
+    // member identity should retrigger this, never a token rotation.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [live, mode, uid])
 
   useEffect(() => {
     if (!live) {
@@ -44,7 +56,8 @@ export function ModeProvider({ mode, session, children }) {
     }
     setLoading(true)
     refresh()
-  }, [live, refresh, bundle.rides])
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [live, refresh])
 
   // CreateRide speaks the UI ride shape; the API speaks columns. Translating
   // here keeps the screen identical whether or not a backend is present.
@@ -67,10 +80,23 @@ export function ModeProvider({ mode, session, children }) {
       destLng: ride.destination?.lng ?? null,
       route: ride.routePath ?? null,
       distanceKm: ride.distanceKm ?? null,
-    }, session)
+    }, sessionRef.current)
     await refresh()
     return id
-  }, [live, mode, session, refresh])
+  }, [live, mode, refresh])
+
+  // Roster changes touch exactly one ride, so they are applied locally and
+  // the server call runs behind the change. A full refetch here cost four
+  // round trips and made every RSVP feel like it hung; this is instant, and
+  // if the server refuses — a full ride, a block — the row rolls back.
+  const patchRide = useCallback((rideId, fn) => {
+    setRides((rs) => rs.map((r) => (r.id === rideId ? fn(r) : r)))
+  }, [])
+
+  const addAttendee = (riderId) => (r) =>
+    r.attendees.includes(riderId) ? r : { ...r, attendees: [...r.attendees, riderId] }
+  const dropAttendee = (riderId) => (r) =>
+    ({ ...r, attendees: r.attendees.filter((a) => a !== riderId) })
 
   const joinRide = useCallback(async (rideId, riderId = 'me') => {
     if (!live) {
@@ -79,9 +105,14 @@ export function ModeProvider({ mode, session, children }) {
           ? { ...r, attendees: [...r.attendees, riderId] } : r))
       return
     }
-    await api.joinRide(rideId)
-    await refresh()
-  }, [live, refresh])
+    patchRide(rideId, addAttendee(riderId))
+    try {
+      await api.joinRide(rideId)
+    } catch (e) {
+      patchRide(rideId, dropAttendee(riderId))
+      throw e
+    }
+  }, [live, patchRide])
 
   const leaveRide = useCallback(async (rideId, riderId = 'me') => {
     if (!live) {
@@ -89,18 +120,23 @@ export function ModeProvider({ mode, session, children }) {
         r.id === rideId ? { ...r, attendees: r.attendees.filter((a) => a !== riderId) } : r))
       return
     }
-    // a captain removing someone else is a different operation to leaving
-    if (riderId === 'me') await api.leaveRide(rideId)
-    else await api.removeRider(rideId, riderId)
-    await refresh()
-  }, [live, refresh])
+    patchRide(rideId, dropAttendee(riderId))
+    try {
+      // a captain removing someone else is a different operation to leaving
+      if (riderId === 'me') await api.leaveRide(rideId)
+      else await api.removeRider(rideId, riderId)
+    } catch (e) {
+      patchRide(rideId, addAttendee(riderId))
+      throw e
+    }
+  }, [live, patchRide])
 
   // When live, resolve riders and machines from the database instead of the
   // bundle. 'me' still maps to the signed-in member so rosters keep working.
   const lookups = useMemo(() => {
     if (!live || !directory) return null
     const byId = new Map(directory.riders.map((r) => [r.id, r]))
-    const myUid = session?.user?.id
+    const myUid = uid
     return {
       riders: directory.riders,
       vehicles: directory.vehicles,
@@ -108,7 +144,7 @@ export function ModeProvider({ mode, session, children }) {
       getVehicleFor: (riderId) =>
         directory.vehicles.find((v) => v.riderId === (riderId === 'me' ? myUid : riderId)),
     }
-  }, [live, directory, session])
+  }, [live, directory, uid])
 
   const value = useMemo(
     () => ({

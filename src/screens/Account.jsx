@@ -22,10 +22,12 @@ function Row({ label, children }) {
 }
 
 export default function Account({ onBack, onOpenLegal }) {
-  const { profile, signOut, updateProfile, garage } = useUser()
+  const { profile, signOut, deleteAccount, updateProfile, garage } = useUser()
   const { copy } = useMode()
   const [editing, setEditing] = useState(false)
   const [confirmDelete, setConfirmDelete] = useState(false)
+  const [deleting, setDeleting] = useState(false)
+  const [deleteError, setDeleteError] = useState('')
 
   const [name, setName] = useState(profile?.name ?? '')
   const [handle, setHandle] = useState(profile?.handle ?? '')
@@ -222,12 +224,23 @@ export default function Account({ onBack, onOpenLegal }) {
                     Your profile, garage and ride history are erased after a 30-day grace period. Payment
                     records are kept only as long as tax law requires. This cannot be undone.
                   </p>
+                  {deleteError && <p className="mt-2 text-[12px] text-accent">{deleteError}</p>}
                   <div className="mt-4 flex flex-wrap gap-2">
                     <button
-                      onClick={signOut}
-                      className="label-caps tap cursor-pointer rounded-full bg-accent px-4 py-2 text-[10px] text-white"
+                      onClick={async () => {
+                        if (deleting) return
+                        setDeleting(true)
+                        setDeleteError('')
+                        try {
+                          await deleteAccount()
+                        } catch (e) {
+                          setDeleteError(e.message)
+                          setDeleting(false)
+                        }
+                      }}
+                      className={`label-caps tap cursor-pointer rounded-full bg-accent px-4 py-2 text-[10px] text-white ${deleting ? 'opacity-50 pointer-events-none' : ''}`}
                     >
-                      Yes, delete it
+                      {deleting ? 'Deleting…' : 'Yes, delete it'}
                     </button>
                     <button
                       onClick={() => setConfirmDelete(false)}

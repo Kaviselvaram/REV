@@ -1,4 +1,4 @@
-import { Suspense, lazy, useState } from 'react'
+import { Suspense, lazy, useEffect, useState } from 'react'
 import RouteThumb from '../components/RouteThumb'
 import {
   Avatar, Eyebrow, GhostButton, IconButton, PrimaryButton, Reveal,
@@ -7,6 +7,7 @@ import {
 import { useMode } from '../lib/mode'
 import { useUser } from '../lib/user'
 import { shareOrCopy, SHARE_MESSAGE } from '../lib/share'
+import * as api from '../lib/api'
 import { currentUser } from '../data/mock'
 import RideChat from '../components/RideChat'
 import RosterManager from '../components/RosterManager'
@@ -14,12 +15,13 @@ import RosterManager from '../components/RosterManager'
 const RouteMap = lazy(() => import('../components/RouteMap'))
 
 export default function RideDetail({ ride, onBack, onOpenRecap }) {
-  const { mode, copy, getRider, getVehicleFor, joinRide, leaveRide } = useMode()
+  const { mode, copy, getRider, getVehicleFor, joinRide, leaveRide, live } = useMode()
   const { requireAuth, profile } = useUser()
   const [bookmarked, setBookmarked] = useState(false)
   const [realRoute, setRealRoute] = useState(null) // real OSRM distance/time once loaded
   const [rosterOpen, setRosterOpen] = useState(false)
   const [actionError, setActionError] = useState('')
+  const [exactPin, setExactPin] = useState(null)
   const [shareNote, setShareNote] = useState('')
 
   const share = async () => {
@@ -45,6 +47,20 @@ export default function RideDetail({ ride, onBack, onOpenRecap }) {
   const spotsLeft = ride.capacity - attendees.length
   const isFull = spotsLeft <= 0
   const isDone = ride.status === 'completed'
+
+  // The public listing carries a point snapped to ~1km. Captains and confirmed
+  // riders get the real one, which the server releases only to them — so this
+  // request is the payoff for the privacy design, not a decoration.
+  useEffect(() => {
+    if (!live || !(joined || isLead)) { setExactPin(null); return }
+    let alive = true
+    api.getExactMeetup(ride.id)
+      .then((p) => { if (alive && p) setExactPin(p) })
+      .catch(() => {}) // refusal is expected until you are on the roster
+    return () => { alive = false }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [live, ride.id, joined, isLead])
+
 
   return (
     <div className="screen-enter mx-auto max-w-5xl px-6 pb-32 pt-10 lg:px-10">
@@ -108,7 +124,12 @@ export default function RideDetail({ ride, onBack, onOpenRecap }) {
               </div>
               <div className="mt-4">
                 <Suspense fallback={<div className="grid h-[300px] place-items-center bg-asphalt-2/50"><span className="label-caps text-[10px] text-bone/40">Loading map…</span></div>}>
-                  <RouteMap ride={ride} interactive height={300} onRoute={setRealRoute} />
+                  <RouteMap
+                    ride={exactPin
+                      ? { ...ride, id: `${ride.id}-exact`,
+                          meetupPin: { ...ride.meetupPin, lat: exactPin.lat, lng: exactPin.lng } }
+                      : ride}
+                    interactive height={300} onRoute={setRealRoute} />
                 </Suspense>
               </div>
               <div className="grid gap-4 p-6 sm:grid-cols-2">
@@ -119,6 +140,17 @@ export default function RideDetail({ ride, onBack, onOpenRecap }) {
                   <div>
                     <p className="label-caps text-[9px] text-bone/40">Meetup</p>
                     <p className="text-sm font-semibold text-bone">{ride.meetupPin.label}</p>
+                    {live && (
+                      exactPin ? (
+                        <p className="mt-0.5 text-[11px] tabular-nums text-volt">
+                          {exactPin.lat.toFixed(5)}, {exactPin.lng.toFixed(5)} · exact pin
+                        </p>
+                      ) : (
+                        <p className="mt-0.5 text-[11px] text-bone/35">
+                          Approximate — join to get the exact pin
+                        </p>
+                      )
+                    )}
                   </div>
                 </div>
                 {ride.destination && (

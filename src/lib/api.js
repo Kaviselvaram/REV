@@ -1,4 +1,4 @@
-import { supabase, isConfigured, isDevAuth, describeError } from './supabase'
+import { getClient, isConfigured, isDevAuth, describeError } from './supabase'
 
 /* ---------------------------------------------------------------------------
    The single boundary between REV's screens and the database.
@@ -12,9 +12,11 @@ import { supabase, isConfigured, isDevAuth, describeError } from './supabase'
    Errors come back as thrown Error objects carrying a member-readable message.
    --------------------------------------------------------------------------- */
 
-function must() {
+// Awaits the lazily-loaded client. Every caller here is already async, so
+// deferring the SDK costs nothing at the call sites.
+async function must() {
   if (!isConfigured) throw new Error('Backend not configured.')
-  return supabase
+  return getClient()
 }
 
 function fail(error, fallback) {
@@ -31,13 +33,13 @@ const DEV_PASSWORD = 'rev-dev-2026'
 
 export async function sendOtp(phoneDigits) {
   if (isDevAuth) return               // nothing to send
-  const sb = must()
+  const sb = await must()
   const { error } = await sb.auth.signInWithOtp({ phone: `+91${phoneDigits}` })
   if (error) fail(error, "Couldn't send the code. Check the number and try again.")
 }
 
 export async function verifyOtp(phoneDigits, token) {
-  const sb = must()
+  const sb = await must()
 
   if (isDevAuth) {
     const { data, error } = await sb.auth.signInWithPassword({
@@ -61,19 +63,27 @@ export async function verifyOtp(phoneDigits, token) {
 
 export async function getSession() {
   if (!isConfigured) return null
-  const { data } = await supabase.auth.getSession()
+  const sb = await getClient()
+  const { data } = await sb.auth.getSession()
   return data.session ?? null
 }
 
 export function onAuthChange(cb) {
   if (!isConfigured) return () => {}
-  const { data } = supabase.auth.onAuthStateChange((_e, session) => cb(session))
-  return () => data.subscription.unsubscribe()
+  let unsub = null
+  let cancelled = false
+  getClient().then((sb) => {
+    if (cancelled) return
+    const { data } = sb.auth.onAuthStateChange((_e, session) => cb(session))
+    unsub = () => data.subscription.unsubscribe()
+  })
+  return () => { cancelled = true; if (unsub) unsub() }
 }
 
 export async function signOut() {
   if (!isConfigured) return
-  await supabase.auth.signOut()
+  const sb = await getClient()
+  await sb.auth.signOut()
 }
 
 // ---------------------------------------------------------------- profile
@@ -93,7 +103,7 @@ const toProfile = (row, phone) => row && ({
 })
 
 export async function getMyProfile(session) {
-  const sb = must()
+  const sb = await must()
   const uid = session?.user?.id
   if (!uid) return null
   const { data, error } = await sb.from('profiles').select('*').eq('id', uid).maybeSingle()
@@ -102,7 +112,7 @@ export async function getMyProfile(session) {
 }
 
 export async function completeSignup({ handle, name, city, dob }, session) {
-  const sb = must()
+  const sb = await must()
   const { data, error } = await sb.rpc('complete_signup', {
     p_handle: handle, p_display_name: name, p_city: city, p_dob: dob,
   })
@@ -111,7 +121,7 @@ export async function completeSignup({ handle, name, city, dob }, session) {
 }
 
 export async function updateProfile(patch, session) {
-  const sb = must()
+  const sb = await must()
   const uid = session?.user?.id
   const row = {}
   if (patch.name !== undefined)   row.display_name = patch.name
@@ -124,7 +134,7 @@ export async function updateProfile(patch, session) {
 }
 
 export async function deleteAccount() {
-  const sb = must()
+  const sb = await must()
   const { error } = await sb.rpc('delete_my_account')
   if (error) fail(error, "Couldn't delete your account.")
   await sb.auth.signOut()
@@ -146,7 +156,7 @@ const toVehicle = (row) => row && ({
 })
 
 export async function getMyVehicles(session) {
-  const sb = must()
+  const sb = await must()
   const uid = session?.user?.id
   if (!uid) return { bike: null, car: null }
   const { data, error } = await sb.from('vehicles').select('*').eq('owner_id', uid).eq('is_primary', true)
@@ -157,7 +167,7 @@ export async function getMyVehicles(session) {
 }
 
 export async function saveVehicle(mode, vehicle, session) {
-  const sb = must()
+  const sb = await must()
   const uid = session?.user?.id
   const row = {
     owner_id: uid,
@@ -187,7 +197,7 @@ export async function saveVehicle(mode, vehicle, session) {
 // Community directory for a world: every member, plus the machine they keep
 // in that world. Rosters and ride pages resolve names and bikes from this.
 export async function listMembers(mode) {
-  const sb = must()
+  const sb = await must()
   const [{ data: profiles, error: pErr }, { data: vehicles, error: vErr }] = await Promise.all([
     sb.from('profiles').select('*'),
     sb.from('vehicles').select('*').eq('mode', mode).eq('is_primary', true),
@@ -242,7 +252,7 @@ const toRide = (row, attendeeIds = [], myUid = null) => ({
 })
 
 export async function listRides(mode, session) {
-  const sb = must()
+  const sb = await must()
   const myUid = session?.user?.id ?? null
 
   const { data: rides, error } = await sb
@@ -265,7 +275,7 @@ export async function listRides(mode, session) {
 }
 
 export async function createRide(input, session) {
-  const sb = must()
+  const sb = await must()
   const { data, error } = await sb.rpc('create_ride', {
     p_mode: input.mode,
     p_title: input.title,
@@ -286,26 +296,26 @@ export async function createRide(input, session) {
 }
 
 export async function joinRide(rideId) {
-  const sb = must()
+  const sb = await must()
   const { error } = await sb.rpc('join_ride', { p_ride: rideId })
   if (error) fail(error, "Couldn't save your seat.")
 }
 
 export async function leaveRide(rideId) {
-  const sb = must()
+  const sb = await must()
   const { error } = await sb.rpc('leave_ride', { p_ride: rideId })
   if (error) fail(error, "Couldn't update your RSVP.")
 }
 
 export async function removeRider(rideId, memberId) {
-  const sb = must()
+  const sb = await must()
   const { error } = await sb.rpc('remove_rider', { p_ride: rideId, p_member: memberId })
   if (error) fail(error, "Couldn't update the roster.")
 }
 
 // Exact pin — the server releases this only to the captain and confirmed riders.
 export async function getExactMeetup(rideId) {
-  const sb = must()
+  const sb = await must()
   const { data, error } = await sb.rpc('ride_meetup', { p_ride: rideId })
   if (error) fail(error, 'Join the ride to see the exact meetup point.')
   return data?.[0] ?? null
@@ -314,7 +324,7 @@ export async function getExactMeetup(rideId) {
 // ---------------------------------------------------------------- chat
 
 export async function listMessages(rideId) {
-  const sb = must()
+  const sb = await must()
   const { data, error } = await sb
     .from('ride_messages').select('*').eq('ride_id', rideId).order('created_at')
   if (error) fail(error, "Couldn't load the chat.")
@@ -322,7 +332,7 @@ export async function listMessages(rideId) {
 }
 
 export async function sendMessage(rideId, body, session) {
-  const sb = must()
+  const sb = await must()
   const { data, error } = await sb.from('ride_messages')
     .insert({ ride_id: rideId, sender_id: session?.user?.id, body })
     .select().single()
@@ -332,11 +342,17 @@ export async function sendMessage(rideId, body, session) {
 
 export function subscribeMessages(rideId, onInsert) {
   if (!isConfigured) return () => {}
-  const channel = supabase
-    .channel(`ride:${rideId}`)
-    .on('postgres_changes',
-        { event: 'INSERT', schema: 'public', table: 'ride_messages', filter: `ride_id=eq.${rideId}` },
-        (payload) => onInsert(payload.new))
-    .subscribe()
-  return () => supabase.removeChannel(channel)
+  let cleanup = null
+  let cancelled = false
+  getClient().then((sb) => {
+    if (cancelled) return
+    const channel = sb
+      .channel(`ride:${rideId}`)
+      .on('postgres_changes',
+          { event: 'INSERT', schema: 'public', table: 'ride_messages', filter: `ride_id=eq.${rideId}` },
+          (payload) => onInsert(payload.new))
+      .subscribe()
+    cleanup = () => sb.removeChannel(channel)
+  })
+  return () => { cancelled = true; if (cleanup) cleanup() }
 }

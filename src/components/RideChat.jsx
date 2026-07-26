@@ -138,6 +138,9 @@ export default function RideChat({ ride, canChat }) {
         </div>
       ) : (
         <>
+          {error && (
+            <p className="border-b border-accent/20 bg-accent/5 px-6 py-2 text-[12px] text-accent">{error}</p>
+          )}
           <div ref={scrollRef} className="flex max-h-80 flex-col gap-4 overflow-y-auto px-6 py-5">
             {messages.length === 0 && (
               <p className="py-6 text-center text-sm text-bone/40">You're the {copy.captain.toLowerCase()} — drop the first brief for your roster.</p>
