@@ -16,6 +16,8 @@ import { Avatar, ModeSwitch } from './components/ui'
 import { useScrollProgress } from './lib/hooks'
 import { ModeProvider, useMode } from './lib/mode'
 import { UserContext, useUser } from './lib/user'
+import { isConfigured } from './lib/supabase'
+import * as api from './lib/api'
 import { currentUser, ACCENTS, IMG } from './data/mock'
 
 function ScrollProgress() {
@@ -259,10 +261,35 @@ export default function App() {
   const [profile, setProfile] = useState(null)
   const [garage, setGarage] = useState({ bike: null, car: null })
   const authCbRef = useRef(null)
+  const sessionRef = useRef(null)
   const [authOpen, setAuthOpen] = useState(false)
   useSmoothScroll()
 
   const signedIn = !!profile
+
+  // Restore an existing Supabase session on load, so a refresh does not sign
+  // the member out. No-ops entirely when the backend is not configured.
+  useEffect(() => {
+    if (!isConfigured) return
+    let alive = true
+    ;(async () => {
+      try {
+        const session = await api.getSession()
+        if (!alive || !session) return
+        sessionRef.current = session
+        const [me, cars] = await Promise.all([
+          api.getMyProfile(session),
+          api.getMyVehicles(session),
+        ])
+        if (!alive) return
+        if (me) setProfile(me)
+        if (cars) setGarage(cars)
+      } catch {
+        // a bad or expired session should just leave the member signed out
+      }
+    })()
+    return () => { alive = false }
+  }, [])
 
   // Gate an action behind sign-in: runs immediately if verified, else opens the
   // login kit and runs it on success.
@@ -271,28 +298,46 @@ export default function App() {
     authCbRef.current = cb || null
     setAuthOpen(true)
   }
-  const resolveAuth = (account) => {
-    setProfile({
-      ...currentUser,
-      id: 'me',
-      name: account.name,
-      handle: account.handle,
-      city: account.city,
-      dob: account.dob ?? null,
-      phone: account.phone,
-      verified: true,
-      // a brand-new member genuinely has no history yet
-      ridesCount: account.isNew ? 0 : currentUser.ridesCount,
-      joinedDate: account.isNew ? new Date().toISOString().slice(0, 10) : currentUser.joinedDate,
-    })
+  // Login builds the finished profile on both the real and prototype paths,
+  // so there is nothing left to assemble here.
+  const resolveAuth = async (finishedProfile) => {
+    setProfile(finishedProfile)
     setAuthOpen(false)
+    if (isConfigured) {
+      try {
+        sessionRef.current = await api.getSession()
+        const cars = await api.getMyVehicles(sessionRef.current)
+        setGarage(cars)
+      } catch { /* an empty garage is a fine starting state */ }
+    }
     const cb = authCbRef.current
     authCbRef.current = null
     if (cb) setTimeout(cb, 0)
   }
-  const signOut = () => { setProfile(null); setGarage({ bike: null, car: null }) }
-  const updateProfile = (patch) => setProfile((p) => (p ? { ...p, ...patch } : p))
-  const saveVehicle = (m, vehicle) => setGarage((g) => ({ ...g, [m]: vehicle }))
+  const signOut = () => {
+    if (isConfigured) api.signOut().catch(() => {})
+    sessionRef.current = null
+    setProfile(null)
+    setGarage({ bike: null, car: null })
+  }
+
+  const updateProfile = (patch) => {
+    setProfile((p) => (p ? { ...p, ...patch } : p)) // optimistic
+    if (isConfigured && sessionRef.current) {
+      api.updateProfile(patch, sessionRef.current)
+        .then((saved) => saved && setProfile(saved))
+        .catch(() => {})
+    }
+  }
+
+  const saveVehicle = (m, vehicle) => {
+    setGarage((g) => ({ ...g, [m]: vehicle })) // optimistic
+    if (isConfigured && sessionRef.current) {
+      api.saveVehicle(m, vehicle, sessionRef.current)
+        .then((saved) => saved && setGarage((g) => ({ ...g, [m]: saved })))
+        .catch(() => {})
+    }
+  }
   const getVehicle = (m) => garage[m]
   const userValue = {
     signedIn, profile, phone: profile?.phone ?? '',

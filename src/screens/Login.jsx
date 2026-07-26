@@ -3,7 +3,9 @@ import { createPortal } from 'react-dom'
 import Select from '../components/Select'
 import { Eyebrow, PrimaryButton, VerifiedBadge } from '../components/ui'
 import { useModalChrome } from '../lib/hooks'
-import { KNOWN_MEMBERS, CITIES } from '../data/mock'
+import { isConfigured } from '../lib/supabase'
+import * as api from '../lib/api'
+import { KNOWN_MEMBERS, CITIES, currentUser } from '../data/mock'
 import { LegalOverlay } from './Legal'
 
 /* ------------------------------------------------------------------
@@ -15,8 +17,10 @@ import { LegalOverlay } from './Legal'
    start identically and split after verification, depending on whether
    the number already has a profile.
 
-   Prototype: any 6-digit code passes. Numbers in KNOWN_MEMBERS are
-   treated as returning members and skip account creation.
+   Runs against Supabase when it is configured, and falls back to the
+   in-memory prototype when it is not, so the app still demonstrates end
+   to end on a machine with no .env.local. Both paths hand onDone() the
+   same profile shape, so nothing downstream knows which one ran.
    ------------------------------------------------------------------ */
 
 const CODE_LENGTH = 6
@@ -37,12 +41,29 @@ function ageFrom(dob) {
 
 const handleFrom = (name) => name.toLowerCase().replace(/[^a-z0-9]/g, '').slice(0, 16)
 
+// Prototype identity, shaped exactly like the one api.js builds from a row.
+const mockProfile = (base, digits, isNew) => ({
+  id: 'me',
+  uid: null,
+  name: base.name,
+  handle: base.handle,
+  city: base.city,
+  bio: '',
+  avatarUrl: null,
+  verified: true,
+  ridesCount: isNew ? 0 : currentUser.ridesCount,
+  joinedDate: isNew ? new Date().toISOString().slice(0, 10) : currentUser.joinedDate,
+  phone: `+91 ${digits}`,
+})
+
 export default function Login({ onDone, onClose }) {
   const [step, setStep] = useState('phone') // phone | code | profile
   const [phone, setPhone] = useState('')
   const [code, setCode] = useState(Array(CODE_LENGTH).fill(''))
   const [error, setError] = useState('')
+  const [busy, setBusy] = useState(false)
   const [legalDoc, setLegalDoc] = useState(null)
+  const sessionRef = useRef(null)
 
   // account-creation fields
   const [name, setName] = useState('')
@@ -98,33 +119,62 @@ export default function Login({ onDone, onClose }) {
     if (e.key === 'Enter' && codeValid) verify()
   }
 
-  const sendCode = () => {
+  const sendCode = async () => {
     if (!phoneValid) { setError('Enter a valid 10-digit Indian mobile number.'); return }
     setError('')
-    setStep('code')
-  }
-
-  const verify = () => {
-    if (!codeValid) return
-    const known = KNOWN_MEMBERS[digits]
-    if (known) {
-      onDone({ ...known, phone: `+91 ${digits}`, isNew: false })
-      return
+    setBusy(true)
+    try {
+      if (isConfigured) await api.sendOtp(digits)
+      setStep('code')
+    } catch (e) {
+      setError(e.message)
+    } finally {
+      setBusy(false)
     }
-    setStep('profile')
   }
 
-  const createAccount = () => {
-    if (!profileValid) return
-    onDone({
-      name: name.trim(),
-      handle,
-      city,
-      dob,
-      phone: `+91 ${digits}`,
-      isNew: true,
-      consent: { version: '1.0', at: new Date().toISOString() },
-    })
+  const verify = async () => {
+    if (!codeValid || busy) return
+    setError('')
+    setBusy(true)
+    try {
+      if (isConfigured) {
+        const session = await api.verifyOtp(digits, code.join(''))
+        sessionRef.current = session
+        // A number that already has a profile is a returning member; one
+        // without it has verified but not yet joined.
+        const existing = await api.getMyProfile(session)
+        if (existing) { onDone(existing); return }
+        setStep('profile')
+      } else {
+        const known = KNOWN_MEMBERS[digits]
+        if (known) { onDone(mockProfile(known, digits, false)); return }
+        setStep('profile')
+      }
+    } catch (e) {
+      setError(e.message)
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  const createAccount = async () => {
+    if (!profileValid || busy) return
+    setError('')
+    setBusy(true)
+    try {
+      if (isConfigured) {
+        const profile = await api.completeSignup(
+          { handle, name: name.trim(), city, dob }, sessionRef.current)
+        onDone(profile)
+      } else {
+        onDone(mockProfile({ name: name.trim(), handle, city }, digits, true))
+      }
+    } catch (e) {
+      setError(e.message)
+    } finally {
+      setBusy(false)
+    }
   }
 
   const heading =
@@ -134,7 +184,9 @@ export default function Login({ onDone, onClose }) {
 
   const sub =
     step === 'phone' ? 'REV is verified-only — a real number is how we keep flakes and creeps off the roster.'
-      : step === 'code' ? `Enter the ${CODE_LENGTH}-digit code. Any six digits work until SMS goes live.`
+      : step === 'code' ? (isConfigured
+          ? `Enter the ${CODE_LENGTH}-digit code we sent you.`
+          : `Enter the ${CODE_LENGTH}-digit code. Any six digits work in prototype mode.`)
         : 'This is what members see when you roll up. Your number stays private.'
 
   return createPortal(
@@ -187,9 +239,9 @@ export default function Login({ onDone, onClose }) {
                 onClick={sendCode}
                 magnetic={false}
                 cursor="Send"
-                className={`mt-4 w-full justify-center ${!phoneValid ? '!opacity-30 !shadow-none pointer-events-none' : ''}`}
+                className={`mt-4 w-full justify-center ${!phoneValid || busy ? '!opacity-30 !shadow-none pointer-events-none' : ''}`}
               >
-                Send verification code
+                {busy ? 'Sending…' : 'Send verification code'}
               </PrimaryButton>
             </>
           )}
@@ -212,13 +264,14 @@ export default function Login({ onDone, onClose }) {
                   />
                 ))}
               </div>
+              {error && <p className="mt-2 text-xs text-accent">{error}</p>}
               <PrimaryButton
                 onClick={verify}
                 magnetic={false}
                 cursor="Verify"
-                className={`mt-4 w-full justify-center ${!codeValid ? '!opacity-30 !shadow-none pointer-events-none' : ''}`}
+                className={`mt-4 w-full justify-center ${!codeValid || busy ? '!opacity-30 !shadow-none pointer-events-none' : ''}`}
               >
-                Verify &amp; continue
+                {busy ? 'Verifying…' : 'Verify & continue'}
               </PrimaryButton>
               <button
                 onClick={() => { setStep('phone'); setCode(Array(CODE_LENGTH).fill('')) }}
@@ -274,13 +327,14 @@ export default function Login({ onDone, onClose }) {
                 </span>
               </label>
 
+              {error && <p className="mt-2 text-xs text-accent">{error}</p>}
               <PrimaryButton
                 onClick={createAccount}
                 magnetic={false}
                 cursor="Join"
-                className={`mt-4 w-full justify-center ${!profileValid ? '!opacity-30 !shadow-none pointer-events-none' : ''}`}
+                className={`mt-4 w-full justify-center ${!profileValid || busy ? '!opacity-30 !shadow-none pointer-events-none' : ''}`}
               >
-                Create my account
+                {busy ? 'Creating…' : 'Create my account'}
               </PrimaryButton>
             </>
           )}
