@@ -143,6 +143,10 @@ export function ModeProvider({ mode, session, children }) {
       getRider: (id) => byId.get(id === 'me' ? myUid : id),
       getVehicleFor: (riderId) =>
         directory.vehicles.find((v) => v.riderId === (riderId === 'me' ? myUid : riderId)),
+      // the bundle's getRecap is a synchronous lookup; the real one is a
+      // request, so live mode hands the screen a fetcher instead
+      getRecap: null,
+      fetchRecap: (rideId) => api.getRecap(rideId),
     }
   }, [live, directory, uid])
 

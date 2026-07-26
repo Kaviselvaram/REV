@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { Avatar, Eyebrow, GhostButton, PrimaryButton, Reveal, VerifiedBadge } from '../components/ui'
 import { ErrorState, NotFound } from '../components/States'
 import { shareOrCopy, SHARE_MESSAGE } from '../lib/share'
+import { riderCard, shareCardImage } from '../lib/shareCard'
 import * as api from '../lib/api'
 
 /* ---------------------------------------------------------------------------
@@ -142,6 +143,7 @@ export default function Identity({ handle, onBack, onJoin, signedIn }) {
   const [state, setState] = useState('loading') // loading | ready | missing | error
   const [err, setErr] = useState('')
   const [shareNote, setShareNote] = useState('')
+  const [cardBusy, setCardBusy] = useState(false)
 
   useEffect(() => {
     let alive = true
@@ -156,6 +158,27 @@ export default function Identity({ handle, onBack, onJoin, signedIn }) {
       .catch((e) => { if (alive) { setErr(e.message); setState('error') } })
     return () => { alive = false }
   }, [handle])
+
+  // A drawn card beats a screenshot: right ratio, wordmark, only what matters.
+  const shareCard = async () => {
+    if (cardBusy) return
+    setCardBusy(true)
+    try {
+      const accent = getComputedStyle(document.documentElement)
+        .getPropertyValue('--accent').trim() || '#A64B2A'
+      const blob = await riderCard(rider, accent)
+      const res = await shareCardImage(blob, `rev-${rider.handle}.png`, `${rider.display_name} on REV`)
+      if (res !== 'cancelled') {
+        setShareNote(res === 'shared' ? 'Shared' : 'Card saved')
+        setTimeout(() => setShareNote(''), 2600)
+      }
+    } catch {
+      setShareNote("Couldn't make the card")
+      setTimeout(() => setShareNote(''), 2600)
+    } finally {
+      setCardBusy(false)
+    }
+  }
 
   const share = async () => {
     const res = await shareOrCopy({
@@ -224,7 +247,15 @@ export default function Identity({ handle, onBack, onJoin, signedIn }) {
           </button>
           <div className="flex items-center gap-2">
             {shareNote && <span className="label-caps text-[10px] text-volt">{shareNote}</span>}
-            <GhostButton onClick={share} className="!px-4 !py-2 !text-[12px]">Share</GhostButton>
+            <GhostButton onClick={share} className="!px-4 !py-2 !text-[12px]">Copy link</GhostButton>
+            <PrimaryButton
+              onClick={shareCard}
+              magnetic={false}
+              cursor="Share"
+              className={`!px-4 !py-2 !text-[12px] ${cardBusy ? '!opacity-50 pointer-events-none' : ''}`}
+            >
+              {cardBusy ? 'Drawing…' : 'Share card'}
+            </PrimaryButton>
           </div>
         </div>
       </Reveal>

@@ -1,18 +1,59 @@
-import { Suspense, lazy, useState } from 'react'
+import { Suspense, lazy, useEffect, useState } from 'react'
 import {
   Avatar, Eyebrow, GhostButton, PrimaryButton, Reveal, SplitWords, VerifiedBadge, formatRideDate,
 } from '../components/ui'
 import { NotFound } from '../components/States'
 import { useMode } from '../lib/mode'
+import { useUser } from '../lib/user'
+import * as api from '../lib/api'
 import { shareOrCopy, SHARE_MESSAGE } from '../lib/share'
 
 const RouteMap = lazy(() => import('../components/RouteMap'))
 
 export default function Recap({ ride, onBack, onBrowse }) {
-  const { copy, getRecap, getRider } = useMode()
+  const { copy, getRecap, getRider, fetchRecap, live } = useMode()
+  const { session } = useUser()
   const [shareNote, setShareNote] = useState('')
-  const recap = getRecap(ride.id)
+  // Prototype data resolves synchronously; the database does not. Both end up
+  // in the same piece of state so the rest of this screen is unchanged.
+  const [recap, setRecap] = useState(() => (live ? null : getRecap?.(ride.id) ?? null))
+  const [loading, setLoading] = useState(live)
+  const [uploading, setUploading] = useState(false)
+  const [photoError, setPhotoError] = useState('')
   const captain = getRider(ride.captainId)
+
+  // The gallery belongs to the people who were on the ride — the server
+  // enforces that too, this just avoids showing a control that would fail.
+  const canAddPhotos = live && session && ride.attendees?.includes('me')
+
+  const onPickPhotos = async (e) => {
+    const files = [...(e.target.files ?? [])]
+    e.target.value = ''
+    if (!files.length) return
+    setUploading(true)
+    setPhotoError('')
+    try {
+      for (const f of files) await api.addRidePhoto(ride.id, f, null, session)
+      const fresh = await fetchRecap(ride.id)
+      setRecap(fresh)
+    } catch (err) {
+      setPhotoError(err.message)
+    } finally {
+      setUploading(false)
+    }
+  }
+
+  useEffect(() => {
+    if (!live) { setRecap(getRecap?.(ride.id) ?? null); setLoading(false); return }
+    let alive = true
+    setLoading(true)
+    fetchRecap(ride.id)
+      .then((r) => { if (alive) setRecap(r) })
+      .catch(() => { if (alive) setRecap(null) })
+      .finally(() => { if (alive) setLoading(false) })
+    return () => { alive = false }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [live, ride.id])
 
   const share = async () => {
     const res = await shareOrCopy({
@@ -23,6 +64,18 @@ export default function Recap({ ride, onBack, onBrowse }) {
       setShareNote(SHARE_MESSAGE[res])
       setTimeout(() => setShareNote(''), 2400)
     }
+  }
+
+  if (loading) {
+    return (
+      <div className="mx-auto max-w-5xl px-6 py-24" role="status" aria-label="Loading recap">
+        <span className="skeleton block h-4 w-24 rounded" />
+        <span className="skeleton mt-8 block h-12 w-3/4 rounded" />
+        <div className="mt-10 grid grid-cols-2 gap-4 sm:grid-cols-3">
+          {Array.from({ length: 6 }, (_, i) => <span key={i} className="skeleton block h-20 rounded-2xl" />)}
+        </div>
+      </div>
+    )
   }
 
   // a completed ride without a recap used to render nothing at all
@@ -98,6 +151,26 @@ export default function Recap({ ride, onBack, onBrowse }) {
           <Eyebrow>The photo wall</Eyebrow>
           <h2 className="mt-2 font-display text-3xl font-medium tracking-tight text-bone">Shot on the <em className="serif-italic text-accent">run.</em></h2>
         </Reveal>
+        {recap.photos.length === 0 && (
+          <Reveal delay={60}>
+            <div className="mt-6 rounded-3xl border border-dashed border-bone/15 p-10 text-center">
+              <p className="text-sm text-bone/55">
+                {canAddPhotos
+                  ? 'No shots yet. You were on this one — add the first.'
+                  : 'No shots from this one yet.'}
+              </p>
+              {canAddPhotos && (
+                <label className="mt-5 inline-flex cursor-pointer items-center gap-2 rounded-full bg-accent px-5 py-2.5 text-white transition-transform hover:scale-[1.03] active:scale-95">
+                  <span className="label-caps text-[10px]">{uploading ? 'Uploading…' : 'Add photos'}</span>
+                  <input type="file" accept="image/*" multiple className="hidden"
+                         disabled={uploading} onChange={onPickPhotos} />
+                </label>
+              )}
+              {photoError && <p className="mt-3 text-xs text-accent">{photoError}</p>}
+            </div>
+          </Reveal>
+        )}
+
         <div className="mt-6 grid grid-cols-2 gap-4 md:grid-cols-3">
           {recap.photos.map((p, i) => (
             <Reveal key={p.id} delay={i * 70}>
@@ -115,6 +188,16 @@ export default function Recap({ ride, onBack, onBrowse }) {
             </Reveal>
           ))}
         </div>
+        {recap.photos.length > 0 && canAddPhotos && (
+          <div className="mt-5 flex items-center gap-3">
+            <label className="inline-flex cursor-pointer items-center gap-2 rounded-full glass-lite px-4 py-2 text-bone/70 transition-colors hover:text-bone">
+              <span className="label-caps text-[10px]">{uploading ? 'Uploading…' : 'Add your shots'}</span>
+              <input type="file" accept="image/*" multiple className="hidden"
+                     disabled={uploading} onChange={onPickPhotos} />
+            </label>
+            {photoError && <span className="text-xs text-accent">{photoError}</span>}
+          </div>
+        )}
       </section>
 
       {/* who rode / drove */}
@@ -122,7 +205,8 @@ export default function Recap({ ride, onBack, onBrowse }) {
         <Reveal>
           <Eyebrow className="!text-volt">{copy.whoHeading}</Eyebrow>
           <h2 className="mt-2 font-display text-3xl font-medium tracking-tight text-bone">
-            {attendees.length} {copy.personPlural}. <em className="serif-italic text-accent">{s.showUpRate}% showed up.</em>
+            {attendees.length} {attendees.length === 1 ? copy.personSingular : copy.personPlural}.{' '}
+            <em className="serif-italic text-accent">{s.showUpRate}% showed up.</em>
           </h2>
           <p className="mt-2 max-w-lg text-sm text-bone/50">{copy.whoSub}</p>
         </Reveal>
@@ -135,7 +219,7 @@ export default function Recap({ ride, onBack, onBrowse }) {
                   <p className="truncate text-sm font-semibold text-bone">
                     {r.name} {r.verified && <VerifiedBadge />}
                   </p>
-                  <p className="text-xs text-bone/45">{r.ridesCount} {copy.logged}</p>
+                  <p className="text-xs text-bone/45">{r.ridesCount} {r.ridesCount === 1 ? copy.loggedSingular : copy.logged}</p>
                 </div>
                 {r.id === ride.captainId && (
                   <span className="label-caps rounded-full border border-accent/40 bg-accent/10 px-2.5 py-1 text-[9px] text-accent">{copy.captain}</span>

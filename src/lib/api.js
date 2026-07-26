@@ -348,6 +348,98 @@ export async function setProfileVisibility(isPublic, session) {
   if (error) fail(error, "Couldn't change your page visibility.")
 }
 
+// ------------------------------------------------- recaps & ride photos
+
+/* Returns the recap in exactly the shape data/mock.js produced, so the Recap
+   screen renders it without knowing where it came from. Ride photos live in a
+   private bucket — a gallery belongs to the people who were on that ride — so
+   each one is served through a short-lived signed URL rather than a public one. */
+export async function getRecap(rideId) {
+  const sb = await must()
+
+  const [{ data: recap }, { data: photos }, { data: roster }] = await Promise.all([
+    sb.from('recaps').select('*').eq('ride_id', rideId).maybeSingle(),
+    sb.from('ride_photos').select('*').eq('ride_id', rideId).order('created_at'),
+    sb.from('ride_attendees').select('member_id').eq('ride_id', rideId).eq('status', 'joined'),
+  ])
+  if (!recap) return null
+
+  let withUrls = []
+  if (photos?.length) {
+    const { data: signed } = await sb.storage
+      .from('ride-photos')
+      .createSignedUrls(photos.map((p) => p.storage_path), 60 * 60)
+    withUrls = photos.map((p, i) => ({
+      id: p.id,
+      caption: p.caption ?? '',
+      src: signed?.[i]?.signedUrl ?? null,
+      memberId: p.member_id,
+    })).filter((p) => p.src)
+  }
+
+  const riders = roster?.length ?? 0
+  return {
+    rideId,
+    note: recap.note ?? '',
+    photos: withUrls,
+    attendeeIds: (roster ?? []).map((r) => r.member_id),
+    statsSummary: {
+      distanceKm: recap.distance_km ? Number(recap.distance_km) : 0,
+      // these are not measured yet — shown as em dashes rather than invented
+      movingTime: '—',
+      avgSpeedKmh: 0,
+      riders,
+      showUpRate: riders > 0 ? 100 : 0,
+      fuelStops: '—',
+    },
+  }
+}
+
+export async function addRidePhoto(rideId, file, caption, session) {
+  const sb = await must()
+  const uid = session?.user?.id
+  if (!uid) throw new Error('Sign in to add photos.')
+
+  const ext = (file.name.split('.').pop() || 'jpg').toLowerCase()
+  const path = `${rideId}/${uid}/${crypto.randomUUID()}.${ext}`
+
+  const { error: upErr } = await sb.storage.from('ride-photos')
+    .upload(path, file, { cacheControl: '3600', upsert: false })
+  if (upErr) fail(upErr, "Couldn't upload that photo.")
+
+  const { error } = await sb.rpc('add_ride_photo', {
+    p_ride: rideId, p_path: path, p_caption: caption || null,
+  })
+  if (error) {
+    await sb.storage.from('ride-photos').remove([path]) // do not orphan the file
+    fail(error, "Couldn't add that photo to the ride.")
+  }
+}
+
+export async function removeRidePhoto(photoId, storagePath) {
+  const sb = await must()
+  const { error } = await sb.from('ride_photos').delete().eq('id', photoId)
+  if (error) fail(error, "Couldn't remove that photo.")
+  await sb.storage.from('ride-photos').remove([storagePath]).catch(() => {})
+}
+
+/* Machine and avatar shots go to public buckets: they appear on a shared
+   identity page a logged-out visitor has to be able to render. */
+async function uploadPublic(bucket, file, session) {
+  const sb = await must()
+  const uid = session?.user?.id
+  if (!uid) throw new Error('Sign in first.')
+  const ext = (file.name.split('.').pop() || 'jpg').toLowerCase()
+  const path = `${uid}/${crypto.randomUUID()}.${ext}`
+  const { error } = await sb.storage.from(bucket)
+    .upload(path, file, { cacheControl: '3600', upsert: false })
+  if (error) fail(error, "Couldn't upload that image.")
+  return sb.storage.from(bucket).getPublicUrl(path).data.publicUrl
+}
+
+export const uploadMachinePhoto = (file, session) => uploadPublic('machines', file, session)
+export const uploadAvatar       = (file, session) => uploadPublic('avatars', file, session)
+
 // ---------------------------------------------------------------- chat
 
 export async function listMessages(rideId) {
