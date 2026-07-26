@@ -321,6 +321,33 @@ export async function getExactMeetup(rideId) {
   return data?.[0] ?? null
 }
 
+// ------------------------------------------------- identity & standing
+
+// The shareable rider page. Readable without a session — that is the growth
+// loop — so this is the one call that works signed out.
+export async function getRiderIdentity(handle) {
+  const sb = await getClient()
+  if (!sb) return null
+  const { data, error } = await sb.rpc('rider_identity', { p_handle: handle })
+  if (error) fail(error, "Couldn't load that rider.")
+  return data ?? null
+}
+
+export async function getFoundingStatus() {
+  const sb = await getClient()
+  if (!sb) return null
+  const { data, error } = await sb.rpc('founding_status')
+  if (error) return null           // a missing counter must never block a page
+  return data?.[0] ?? null
+}
+
+export async function setProfileVisibility(isPublic, session) {
+  const sb = await must()
+  const { error } = await sb.from('profiles')
+    .update({ profile_public: isPublic }).eq('id', session?.user?.id)
+  if (error) fail(error, "Couldn't change your page visibility.")
+}
+
 // ---------------------------------------------------------------- chat
 
 export async function listMessages(rideId) {

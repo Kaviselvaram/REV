@@ -14,6 +14,7 @@ const Recap      = lazy(() => import('./screens/Recap'))
 const Login      = lazy(() => import('./screens/Login'))
 const Account    = lazy(() => import('./screens/Account'))
 const Legal      = lazy(() => import('./screens/Legal'))
+const Identity   = lazy(() => import('./screens/Identity'))
 import Cursor from './components/Cursor'
 import ErrorBoundary from './components/ErrorBoundary'
 import { NotFound } from './components/States'
@@ -218,6 +219,12 @@ function InAppHeader({ nav, go, onToggleMode, onSignIn }) {
                     <p className="truncate text-[11px] text-bone/45">@{profile.handle} · {profile.city}</p>
                   </div>
                   <button
+                    onClick={() => { setMenuOpen(false); go('identity', null, profile.handle) }}
+                    className="block w-full cursor-pointer px-4 py-2.5 text-left text-[13px] text-bone/75 transition-colors hover:bg-bone/8 hover:text-bone"
+                  >
+                    My rider page
+                  </button>
+                  <button
                     onClick={() => { setMenuOpen(false); go('account') }}
                     className="block w-full cursor-pointer px-4 py-2.5 text-left text-[13px] text-bone/75 transition-colors hover:bg-bone/8 hover:text-bone"
                   >
@@ -253,11 +260,28 @@ function InAppHeader({ nav, go, onToggleMode, onSignIn }) {
   )
 }
 
+/* Navigation stays a single piece of state; it just became addressable.
+   Only the identity page needs a real URL — it is the shared artefact — so
+   that is the one route parsed and pushed. Everything else keeps the existing
+   in-app behaviour and leaves the address bar alone. */
+function navFromLocation() {
+  const m = window.location.pathname.match(/^\/r\/([a-z0-9_]{3,16})\/?$/i)
+  if (m) return { screen: 'identity', rideId: null, handle: m[1].toLowerCase() }
+  return null
+}
+
+function syncLocation(nav) {
+  const want = nav.screen === 'identity' && nav.handle ? `/r/${nav.handle}` : '/'
+  if (window.location.pathname !== want) {
+    window.history.pushState({}, '', want)
+  }
+}
+
 // In-memory navigation — no router lib, no persistence, matches the prototype brief.
 export default function App() {
   const [booted, setBooted] = useState(false)
   const [mode, setMode] = useState(initialMode) // null → photographic selector
-  const [nav, setNav] = useState({ screen: 'landing', rideId: null })
+  const [nav, setNav] = useState(() => navFromLocation() ?? { screen: 'landing', rideId: null })
   const [pending, setPending] = useState(null) // target nav while curtain covers
   // — session user: mock auth + saved garage (per mode) —
   // profile is null when signed out. Its id stays 'me' so ride rosters, which
@@ -396,14 +420,23 @@ export default function App() {
   }, [nav, mode])
 
   // Navigate through the curtain (instant under reduced motion).
-  const go = (screen, rideId = null) => {
-    if (screen === nav.screen && rideId === nav.rideId) return
+  const go = (screen, rideId = null, handle = null) => {
+    if (screen === nav.screen && rideId === nav.rideId && handle === (nav.handle ?? null)) return
+    const next = { screen, rideId, handle }
     if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
-      setNav({ screen, rideId })
+      setNav(next)
       return
     }
-    setPending({ screen, rideId })
+    setPending(next)
   }
+
+  // Keep the address bar in step, and honour the browser's back button.
+  useEffect(() => { syncLocation(nav) }, [nav])
+  useEffect(() => {
+    const onPop = () => setNav(navFromLocation() ?? { screen: 'landing', rideId: null })
+    window.addEventListener('popstate', onPop)
+    return () => window.removeEventListener('popstate', onPop)
+  }, [])
 
   const selectMode = (m) => {
     setMode(m)
@@ -433,7 +466,21 @@ export default function App() {
         />
       )}
       <ErrorBoundary>
-        {!mode ? (
+        {/* A shared /r/:handle link is the entry point for people who are not
+            members yet. It must render before the world selector, or the first
+            thing a visitor sees is a gate instead of the rider who invited them. */}
+        {nav.screen === 'identity' && nav.handle ? (
+          <div className="grain min-h-screen bg-asphalt mode-bike" style={{ '--accent': ACCENTS.bike }}>
+            <Suspense fallback={<div className="min-h-screen" aria-busy="true" />}>
+              <Identity
+                handle={nav.handle}
+                signedIn={signedIn}
+                onBack={() => { setMode((m) => m ?? 'bike'); go('meets') }}
+                onJoin={() => requireAuth(null)}
+              />
+            </Suspense>
+          </div>
+        ) : !mode ? (
           <div className="grain min-h-screen bg-asphalt" style={{ '--accent': ACCENTS.bike }}>
             <Selector onSelect={selectMode} />
           </div>
@@ -445,6 +492,7 @@ export default function App() {
               go={go}
               onToggleMode={toggleMode}
               onSignIn={() => requireAuth(null)}
+              signedIn={signedIn}
             />
           </ModeProvider>
         )}
@@ -458,7 +506,7 @@ export default function App() {
   )
 }
 
-function AppShell({ mode, nav, go, onToggleMode, onSignIn }) {
+function AppShell({ mode, nav, go, onToggleMode, onSignIn, signedIn }) {
   const { rides, copy } = useMode()
   const [legalDoc, setLegalDoc] = useState('terms')
   const ride = nav.rideId ? rides.find((r) => r.id === nav.rideId) : null
@@ -479,6 +527,15 @@ function AppShell({ mode, nav, go, onToggleMode, onSignIn }) {
       {nav.screen === 'meets' && <MeetsFeed key={`meets-${mode}`} onOpenRide={(id) => go('ride', id)} />}
       {nav.screen === 'account' && <Account onBack={() => go('meets')} onOpenLegal={(d) => { setLegalDoc(d); go('legal') }} />}
       {nav.screen === 'legal' && <Legal doc={legalDoc} onSelect={setLegalDoc} onBack={() => go('meets')} />}
+      {nav.screen === 'identity' && nav.handle && (
+        <Identity
+          key={`id-${nav.handle}`}
+          handle={nav.handle}
+          signedIn={signedIn}
+          onBack={() => go('meets')}
+          onJoin={onSignIn}
+        />
+      )}
 
       {missingRide ? (
         <NotFound
