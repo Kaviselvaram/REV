@@ -7,6 +7,8 @@ import { createContext, useContext } from 'react'
 //   signedIn      boolean
 //   profile       null when signed out, else { id:'me', name, handle, city,
 //                 dob, phone, verified, ridesCount, joinedDate, bio? }
+//   session       the Supabase session when signed in against the backend,
+//                 null in prototype mode
 //   requireAuth   (cb) => runs cb now if signed in, else opens the login kit
 //                 and runs it after verification
 //   signOut       clears the session and the garage

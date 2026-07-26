@@ -29,6 +29,8 @@ export default function CreateRide({ onClose, onCreated }) {
   const [time, setTime] = useState('06:00')
   const [capacity, setCapacity] = useState('12')
   const [notes, setNotes] = useState('')
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState('')
 
   const start = spotByLabel(startLabel)
   const dest = destLabel && destLabel !== '— Static meet (no destination) —' ? spotByLabel(destLabel) : null
@@ -46,8 +48,10 @@ export default function CreateRide({ onClose, onCreated }) {
     routePath: path,
   }
 
-  const submit = () => {
-    if (!valid) return
+  const submit = async () => {
+    if (!valid || busy) return
+    setBusy(true)
+    setError('')
     const ride = {
       id: `me-${Date.now()}`,
       title: title.trim(),
@@ -64,8 +68,13 @@ export default function CreateRide({ onClose, onCreated }) {
       routePath: path,
       mine: true,
     }
-    addRide(ride)
-    onCreated(ride.id)
+    try {
+      const id = await addRide(ride)
+      onCreated(id ?? ride.id)
+    } catch (e) {
+      setError(e.message)
+      setBusy(false)
+    }
   }
 
   const destOptions = ['— Static meet (no destination) —', ...SPOTS.map((s) => s.label)]
@@ -147,6 +156,8 @@ export default function CreateRide({ onClose, onCreated }) {
             </div>
           </div>
 
+          {error && <p className="mt-3 text-xs text-accent">{error}</p>}
+
           <div className="mt-5 flex items-center justify-between gap-3">
             <span className="hidden items-center gap-2 whitespace-nowrap text-xs text-bone/55 sm:flex">
               <Avatar rider={profile ?? currentUser} size="sm" /> Led by you <VerifiedBadge />
@@ -154,8 +165,8 @@ export default function CreateRide({ onClose, onCreated }) {
             <div className="flex flex-1 justify-end gap-2 sm:flex-none">
               <GhostButton onClick={onClose} className="!px-4 !py-2.5 !text-[13px]">Cancel</GhostButton>
               <PrimaryButton onClick={submit} magnetic={false} cursor="Publish"
-                className={`whitespace-nowrap ${!valid ? '!opacity-30 !shadow-none pointer-events-none' : ''}`}>
-                Publish {noun}
+                className={`whitespace-nowrap ${!valid || busy ? '!opacity-30 !shadow-none pointer-events-none' : ''}`}>
+                {busy ? 'Publishing…' : `Publish ${noun}`}
               </PrimaryButton>
             </div>
           </div>

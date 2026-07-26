@@ -3,7 +3,7 @@ import { createPortal } from 'react-dom'
 import Select from '../components/Select'
 import { Eyebrow, PrimaryButton, VerifiedBadge } from '../components/ui'
 import { useModalChrome } from '../lib/hooks'
-import { isConfigured } from '../lib/supabase'
+import { isConfigured, isDevAuth } from '../lib/supabase'
 import * as api from '../lib/api'
 import { KNOWN_MEMBERS, CITIES, currentUser } from '../data/mock'
 import { LegalOverlay } from './Legal'
@@ -184,9 +184,11 @@ export default function Login({ onDone, onClose }) {
 
   const sub =
     step === 'phone' ? 'REV is verified-only — a real number is how we keep flakes and creeps off the roster.'
-      : step === 'code' ? (isConfigured
-          ? `Enter the ${CODE_LENGTH}-digit code we sent you.`
-          : `Enter the ${CODE_LENGTH}-digit code. Any six digits work in prototype mode.`)
+      : step === 'code' ? (isDevAuth
+          ? `Dev mode — any ${CODE_LENGTH} digits sign you in. No SMS is sent.`
+          : isConfigured
+            ? `Enter the ${CODE_LENGTH}-digit code we sent you.`
+            : `Enter the ${CODE_LENGTH}-digit code. Any six digits work in prototype mode.`)
         : 'This is what members see when you roll up. Your number stays private.'
 
   return createPortal(

@@ -262,6 +262,7 @@ export default function App() {
   const [garage, setGarage] = useState({ bike: null, car: null })
   const authCbRef = useRef(null)
   const sessionRef = useRef(null)
+  const [session, setSession] = useState(null) // drives ModeProvider's live mode
   const [authOpen, setAuthOpen] = useState(false)
   useSmoothScroll()
 
@@ -277,6 +278,7 @@ export default function App() {
         const session = await api.getSession()
         if (!alive || !session) return
         sessionRef.current = session
+        setSession(session)
         const [me, cars] = await Promise.all([
           api.getMyProfile(session),
           api.getMyVehicles(session),
@@ -305,8 +307,10 @@ export default function App() {
     setAuthOpen(false)
     if (isConfigured) {
       try {
-        sessionRef.current = await api.getSession()
-        const cars = await api.getMyVehicles(sessionRef.current)
+        const s = await api.getSession()
+        sessionRef.current = s
+        setSession(s)
+        const cars = await api.getMyVehicles(s)
         setGarage(cars)
       } catch { /* an empty garage is a fine starting state */ }
     }
@@ -317,6 +321,7 @@ export default function App() {
   const signOut = () => {
     if (isConfigured) api.signOut().catch(() => {})
     sessionRef.current = null
+    setSession(null)
     setProfile(null)
     setGarage({ bike: null, car: null })
   }
@@ -340,7 +345,7 @@ export default function App() {
   }
   const getVehicle = (m) => garage[m]
   const userValue = {
-    signedIn, profile, phone: profile?.phone ?? '',
+    signedIn, profile, session, phone: profile?.phone ?? '',
     requireAuth, signOut, updateProfile,
     garage, saveVehicle, getVehicle,
   }
@@ -399,7 +404,7 @@ export default function App() {
             <Selector onSelect={selectMode} />
           </div>
         ) : (
-          <ModeProvider key={mode} mode={mode}>
+          <ModeProvider key={mode} mode={mode} session={session}>
             <AppShell
               mode={mode}
               nav={nav}

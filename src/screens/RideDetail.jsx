@@ -19,6 +19,7 @@ export default function RideDetail({ ride, onBack, onOpenRecap }) {
   const [bookmarked, setBookmarked] = useState(false)
   const [realRoute, setRealRoute] = useState(null) // real OSRM distance/time once loaded
   const [rosterOpen, setRosterOpen] = useState(false)
+  const [actionError, setActionError] = useState('')
   const [shareNote, setShareNote] = useState('')
 
   const share = async () => {
@@ -218,6 +219,7 @@ export default function RideDetail({ ride, onBack, onOpenRecap }) {
 
           <Reveal delay={180}>
             <section className="glass rounded-2xl p-6 text-center">
+              {actionError && <p className="mb-3 text-xs text-accent">{actionError}</p>}
               {isDone ? (
                 <>
                   <p className="text-sm text-bone/55">This one's in the books.</p>
@@ -240,7 +242,7 @@ export default function RideDetail({ ride, onBack, onOpenRecap }) {
                   <p className="mt-1 text-xs text-bone/50">
                     Meetup pin and updates land in your group chat.
                   </p>
-                  <GhostButton onClick={() => leaveRide(ride.id)} className="mt-4 w-full !border-bone/15 !text-bone/55 hover:!border-red-400/40 hover:!text-red-300">
+                  <GhostButton onClick={() => Promise.resolve(leaveRide(ride.id)).catch((e) => setActionError(e.message))} className="mt-4 w-full !border-bone/15 !text-bone/55 hover:!border-red-400/40 hover:!text-red-300">
                     {copy.rsvpBackOut}
                   </GhostButton>
                 </>
@@ -254,7 +256,7 @@ export default function RideDetail({ ride, onBack, onOpenRecap }) {
                   <p className="text-sm text-bone/55">
                     {spotsLeft} {spotsLeft === 1 ? 'spot' : 'spots'} left · one tap, no forms
                   </p>
-                  <PrimaryButton onClick={() => requireAuth(() => joinRide(ride.id))} className="mt-4 w-full">
+                  <PrimaryButton onClick={() => requireAuth(() => { Promise.resolve(joinRide(ride.id)).catch((e) => setActionError(e.message)) })} className="mt-4 w-full">
                     {copy.rsvpCta}
                   </PrimaryButton>
                   <p className="mt-3 text-[11px] leading-relaxed text-bone/35">

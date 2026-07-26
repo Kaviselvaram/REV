@@ -18,6 +18,19 @@ const key = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY
 
 export const isConfigured = Boolean(url && key)
 
+/* Development SMS stub. Phone OTP needs an SMS provider under contract, which
+   is a launch concern, not a build-time one. With this flag the login kit signs
+   in against a seeded email/password instead — the member still gets a real
+   Supabase session and a real JWT, so RLS, policies and every server-side rule
+   are exercised exactly as in production. Only the delivery of the six digits
+   is faked. Guarded so it can never switch on in a production build. */
+export const isDevAuth =
+  isConfigured && import.meta.env.DEV && import.meta.env.VITE_DEV_AUTH === 'true'
+
+if (isDevAuth) {
+  console.warn('[REV] DEV AUTH ACTIVE — any 6 digits sign in a seeded member. Never ship this.')
+}
+
 if (!isConfigured && import.meta.env.DEV) {
   console.warn(
     '[REV] No Supabase env vars found — running on in-memory prototype data. ' +

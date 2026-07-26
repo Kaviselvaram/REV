@@ -1,6 +1,8 @@
-import { useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useMode } from '../lib/mode'
 import { useUser } from '../lib/user'
+import { isConfigured } from '../lib/supabase'
+import * as api from '../lib/api'
 import { currentUser } from '../data/mock'
 import { Avatar, VerifiedBadge, formatRideTime } from './ui'
 
@@ -21,25 +23,95 @@ function seedMessages(ride, getRider, mode) {
 }
 
 export default function RideChat({ ride, canChat }) {
-  const { mode, copy, getRider } = useMode()
-  const { profile } = useUser()
+  const { mode, copy, getRider, live } = useMode()
+  const { profile, session } = useUser()
   const seed = useMemo(() => seedMessages(ride, getRider, mode), [ride.id])
-  const [messages, setMessages] = useState(seed)
+  const [messages, setMessages] = useState(live ? [] : seed)
   const [draft, setDraft] = useState('')
+  const [sending, setSending] = useState(false)
+  const [error, setError] = useState('')
   const scrollRef = useRef(null)
+  // React state updates are async, so two events fired in the same tick both
+  // pass a state-based guard. A ref flips synchronously and cannot be raced.
+  const sendLock = useRef(false)
 
-  const send = () => {
-    const t = draft.trim()
-    if (!t) return
-    setMessages((m) => [...m, { id: `me-${Date.now()}`, riderId: 'me', text: t, min: 0 }])
-    setDraft('')
-    requestAnimationFrame(() => {
-      const el = scrollRef.current
-      if (el) el.scrollTop = el.scrollHeight
+  const toBubble = useCallback((row) => ({
+    id: String(row.id),
+    riderId: row.sender_id === session?.user?.id ? 'me' : row.sender_id,
+    text: row.body,
+    at: row.created_at,
+  }), [session])
+
+  const toBottom = () => requestAnimationFrame(() => {
+    const el = scrollRef.current
+    if (el) el.scrollTop = el.scrollHeight
+  })
+
+  // Load history, then follow the room. The subscription is scoped to this
+  // ride, and RLS still decides delivery — a member off the roster gets
+  // nothing pushed to them, not merely a hidden UI.
+  useEffect(() => {
+    if (!live || !canChat || !isConfigured) return
+    let alive = true
+    ;(async () => {
+      try {
+        const rows = await api.listMessages(ride.id)
+        if (!alive) return
+        setMessages(rows.map(toBubble))
+        toBottom()
+      } catch (e) {
+        if (alive) setError(e.message)
+      }
+    })()
+    const off = api.subscribeMessages(ride.id, (row) => {
+      setMessages((m) => (m.some((x) => x.id === String(row.id)) ? m : [...m, toBubble(row)]))
+      toBottom()
     })
+    return () => { alive = false; off() }
+  }, [live, canChat, ride.id, toBubble])
+
+  const send = async () => {
+    const t = draft.trim()
+    if (!t || sendLock.current) return
+    sendLock.current = true
+
+    if (!live) {
+      setMessages((m) => [...m, { id: `me-${Date.now()}`, riderId: 'me', text: t, min: 0 }])
+      setDraft('')
+      toBottom()
+      sendLock.current = false
+      return
+    }
+
+    setSending(true)
+    setError('')
+    const optimistic = { id: `pending-${Date.now()}`, riderId: 'me', text: t, at: new Date().toISOString() }
+    setMessages((m) => [...m, optimistic])
+    setDraft('')
+    toBottom()
+    try {
+      const row = await api.sendMessage(ride.id, t, session)
+      // swap the optimistic bubble for the stored row (realtime may also
+      // deliver it; toBubble ids keep that from duplicating)
+      setMessages((m) => m.map((x) => (x.id === optimistic.id ? toBubble(row) : x))
+                          .filter((x, i, arr) => arr.findIndex((y) => y.id === x.id) === i))
+    } catch (e) {
+      setMessages((m) => m.filter((x) => x.id !== optimistic.id))
+      setDraft(t)
+      setError(e.message)
+    } finally {
+      setSending(false)
+      sendLock.current = false
+    }
   }
 
-  const stamp = (min) => (min <= 0 ? 'now' : `${min}m ago`)
+  const stamp = (m) => {
+    if (m.at) {
+      const mins = Math.max(0, Math.round((Date.now() - new Date(m.at)) / 60000))
+      return mins <= 0 ? 'now' : mins < 60 ? `${mins}m ago` : formatRideTime(m.at)
+    }
+    return m.min <= 0 ? 'now' : `${m.min}m ago`
+  }
 
   return (
     <section className="glass overflow-hidden rounded-2xl">
@@ -82,7 +154,7 @@ export default function RideChat({ ride, canChat }) {
                     <div className={`mb-1 flex items-center gap-1.5 ${mine ? 'flex-row-reverse' : ''}`}>
                       <span className="text-xs font-semibold text-bone/80">{mine ? 'You' : r.name.split(' ')[0]}</span>
                       {isCap && <span className="label-caps rounded-full bg-accent/10 px-1.5 py-0.5 text-[7px] text-accent">{copy.captain}</span>}
-                      <span className="text-[10px] text-bone/35">{stamp(m.min)}</span>
+                      <span className="text-[10px] text-bone/35">{stamp(m)}</span>
                     </div>
                     <p className={`rounded-2xl px-4 py-2.5 text-sm leading-relaxed ${mine ? 'bg-accent text-white' : 'bg-asphalt-2/70 text-bone/85'}`}>
                       {m.text}

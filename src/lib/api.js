@@ -1,4 +1,4 @@
-import { supabase, isConfigured, describeError } from './supabase'
+import { supabase, isConfigured, isDevAuth, describeError } from './supabase'
 
 /* ---------------------------------------------------------------------------
    The single boundary between REV's screens and the database.
@@ -23,7 +23,14 @@ function fail(error, fallback) {
 
 // ---------------------------------------------------------------- auth
 
+// Dev stub: seeded members carry a synthetic email and a shared password, so
+// the client obtains a genuine session without an SMS provider. Production
+// takes the OTP path below and never reaches this.
+const DEV_EMAIL = (digits) => `${digits}@dev.rev.invalid`
+const DEV_PASSWORD = 'rev-dev-2026'
+
 export async function sendOtp(phoneDigits) {
+  if (isDevAuth) return               // nothing to send
   const sb = must()
   const { error } = await sb.auth.signInWithOtp({ phone: `+91${phoneDigits}` })
   if (error) fail(error, "Couldn't send the code. Check the number and try again.")
@@ -31,6 +38,20 @@ export async function sendOtp(phoneDigits) {
 
 export async function verifyOtp(phoneDigits, token) {
   const sb = must()
+
+  if (isDevAuth) {
+    const { data, error } = await sb.auth.signInWithPassword({
+      email: DEV_EMAIL(phoneDigits), password: DEV_PASSWORD,
+    })
+    if (error) {
+      throw new Error(
+        'No seeded dev member for that number. Try 9876543210, 9123456789, ' +
+        '9988776655, 9555000111, 9444333222, or 9000000001-3 for the new-member path.',
+      )
+    }
+    return data.session
+  }
+
   const { data, error } = await sb.auth.verifyOtp({
     phone: `+91${phoneDigits}`, token, type: 'sms',
   })
@@ -161,6 +182,40 @@ export async function saveVehicle(mode, vehicle, session) {
   const { data, error } = await q
   if (error) fail(error, "Couldn't save your machine.")
   return toVehicle(data)
+}
+
+// Community directory for a world: every member, plus the machine they keep
+// in that world. Rosters and ride pages resolve names and bikes from this.
+export async function listMembers(mode) {
+  const sb = must()
+  const [{ data: profiles, error: pErr }, { data: vehicles, error: vErr }] = await Promise.all([
+    sb.from('profiles').select('*'),
+    sb.from('vehicles').select('*').eq('mode', mode).eq('is_primary', true),
+  ])
+  if (pErr) fail(pErr, "Couldn't load members.")
+  if (vErr) fail(vErr, "Couldn't load garages.")
+
+  return {
+    riders: (profiles ?? []).map((p) => ({
+      id: p.id,
+      name: p.display_name,
+      handle: p.handle,
+      avatarUrl: p.avatar_path ?? null,
+      verified: p.is_verified,
+      ridesCount: p.rides_count,
+      joinedDate: p.created_at?.slice(0, 10),
+    })),
+    vehicles: (vehicles ?? []).map((v) => ({
+      id: v.id,
+      riderId: v.owner_id,
+      make: v.make,
+      model: v.model,
+      year: v.year,
+      mods: v.mods ?? [],
+      photos: v.photo_paths ?? [],
+      rideStyle: v.ride_style ?? '',
+    })),
+  }
 }
 
 // ---------------------------------------------------------------- rides

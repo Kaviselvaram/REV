@@ -2,6 +2,7 @@ import { useState } from 'react'
 import RideCard from '../components/RideCard'
 import CreateRide from './CreateRide'
 import { Eyebrow, PrimaryButton, Reveal, SplitWords } from '../components/ui'
+import { FeedSkeleton, ErrorState } from '../components/States'
 import { useMode } from '../lib/mode'
 import { useUser } from '../lib/user'
 import { CITY } from '../data/mock'
@@ -14,7 +15,7 @@ const FILTERS = [
 ]
 
 export default function MeetsFeed({ onOpenRide }) {
-  const { mode, copy, rides } = useMode()
+  const { mode, copy, rides, loading, error, refresh } = useMode()
   const { requireAuth } = useUser()
   const [filter, setFilter] = useState('all')
   const [creating, setCreating] = useState(false)
@@ -54,7 +55,15 @@ export default function MeetsFeed({ onOpenRide }) {
         </div>
       </Reveal>
 
-      {shown.length === 0 ? (
+      {error ? (
+        <ErrorState
+          title="Couldn't load the feed."
+          body={error}
+          onRetry={refresh}
+        />
+      ) : loading ? (
+        <FeedSkeleton />
+      ) : shown.length === 0 ? (
         <Reveal delay={100}>
           <div className="mt-16 rounded-3xl border border-dashed border-bone/15 p-16 text-center">
             <p className="font-display text-xl font-bold text-bone/60">Nothing here yet.</p>
