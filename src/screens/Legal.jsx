@@ -33,7 +33,7 @@ const DOCS = {
         h: 'Who we are',
         p: [
           `REV is operated by ${ENTITY.name} (${ENTITY.cin}), registered at ${ENTITY.address}. You can reach us at ${ENTITY.email}.`,
-          'REV is a community platform for verified two-wheeler and four-wheeler owners in India. We help members find each other and organise group rides and drives. We are not a transport service, a taxi aggregator, or a tour operator.',
+          'REV is a community platform for verified two-wheeler and four-wheeler owners in India. Members find each other here and organise their own group rides and drives; REV lists what they create and does not organise, lead or run any ride. We are not a transport service, a taxi aggregator, or a tour operator.',
         ],
       },
       {

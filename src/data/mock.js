@@ -468,7 +468,7 @@ const bikeCopy = {
   heroLines: ['RIDE WITH', 'PEOPLE WHO', 'SHOW UP.'],
   heroSub: 'REV replaces the chaos of WhatsApp rider groups with verified riders, real RSVPs, and Sunday rides that actually run.',
   browseCta: 'Browse meets',
-  stats: [['1,500+', 'organised rides'], ['92%', 'RSVP show-up rate'], ['0', 'unverified captains']],
+  stats: [['1,500+', 'rides listed'], ['92%', 'RSVP show-up rate'], ['0', 'unverified captains']],
   ticker: ['ECR SUNRISE RUN', 'KOLLI HILLS · 70 HAIRPINS', 'MARINA DAWN PATROL', 'GST MIDNIGHT LOOP', 'PONDY DAY DASH', 'MUTTUKADU SUNSET', 'KANCHIPURAM TRAIL'],
   pillars: [
     { title: 'Verified riders only', body: 'Phone, RC and DL checks behind every verified badge. No ghosts, no creeps, no 40-message "who\'s coming?" threads.', volt: true },
@@ -528,7 +528,7 @@ const carCopy = {
   heroLines: ['DRIVE WITH', 'PEOPLE WHO', 'SHOW UP.'],
   heroSub: 'REV replaces the chaos of WhatsApp car groups with verified drivers, real RSVPs, and weekend convoys that actually run.',
   browseCta: 'Browse drives',
-  stats: [['1,200+', 'organised drives'], ['90%', 'RSVP show-up rate'], ['0', 'unverified leads']],
+  stats: [['1,200+', 'drives listed'], ['90%', 'RSVP show-up rate'], ['0', 'unverified leads']],
   ticker: ['ECR SUNRISE CONVOY', 'YELAGIRI · 14 HAIRPINS', 'MARINA SUNRISE DRIVE', 'OMR MIDNIGHT CRUISE', 'PONDY DAY TRIP', 'MUTTUKADU GOLDEN HOUR', 'TRACK MORNING LAPS'],
   pillars: [
     { title: 'Verified drivers only', body: 'Phone, RC and DL checks behind every badge. No ghosts, no flakes, no 40-message "who\'s coming?" threads.', volt: true },
