@@ -20,6 +20,8 @@ export function ModeProvider({ mode, session, children }) {
   const [rides, setRides] = useState(live ? [] : bundle.rides)
   const [directory, setDirectory] = useState(null) // real members, when live
   const directoryRef = useRef(null)
+  const [corridors, setCorridors] = useState([])
+  const corridorsRef = useRef(null)
   const sessionRef = useRef(session)
   sessionRef.current = session
   const [loading, setLoading] = useState(live)
@@ -31,11 +33,14 @@ export function ModeProvider({ mode, session, children }) {
     try {
       // The member directory is per-world and does not change when someone
       // RSVPs, so it is only fetched when it is missing.
-      const [rows, dir] = await Promise.all([
+      const [rows, dir, cors] = await Promise.all([
         api.listRides(mode, sessionRef.current),
         directoryRef.current ? Promise.resolve(directoryRef.current) : api.listMembers(mode),
+        corridorsRef.current ? Promise.resolve(corridorsRef.current) : api.listCorridors(),
       ])
       setRides(rows)
+      corridorsRef.current = cors
+      setCorridors(cors)
       directoryRef.current = dir
       setDirectory(dir)
     } catch (e) {
@@ -80,6 +85,8 @@ export function ModeProvider({ mode, session, children }) {
       destLng: ride.destination?.lng ?? null,
       route: ride.routePath ?? null,
       distanceKm: ride.distanceKm ?? null,
+      city: ride.city ?? 'Chennai',
+      corridor: ride.corridor ?? null,
     }, sessionRef.current)
     await refresh()
     return id
@@ -153,10 +160,10 @@ export function ModeProvider({ mode, session, children }) {
   const value = useMemo(
     () => ({
       ...bundle, ...(lookups ?? {}),
-      mode, rides, loading, error, live,
+      mode, rides, corridors, loading, error, live,
       addRide, joinRide, leaveRide, refresh,
     }),
-    [bundle, lookups, mode, rides, loading, error, live, addRide, joinRide, leaveRide, refresh],
+    [bundle, lookups, mode, rides, corridors, loading, error, live, addRide, joinRide, leaveRide, refresh],
   )
   return <ModeContext.Provider value={value}>{children}</ModeContext.Provider>
 }

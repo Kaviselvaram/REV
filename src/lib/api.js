@@ -290,10 +290,20 @@ const toRide = (row, attendeeIds = [], myUid = null) => ({
   attendees: attendeeIds,
   capacity: row.capacity,
   status: row.status,
+  city: row.city ?? null,
+  corridor: row.corridor ?? null,
+  corridorName: row.corridor_name ?? null,
   distanceKm: row.distance_km ? Number(row.distance_km) : 0,
   routePath: row.route ?? null,
   mine: row.captain_id === myUid,
 })
+
+export async function listCorridors() {
+  const sb = await getClient()
+  if (!sb) return []
+  const { data } = await sb.from('corridors').select('*').order('sort_order')
+  return data ?? []
+}
 
 export async function listRides(mode, session) {
   const sb = await must()
@@ -334,6 +344,8 @@ export async function createRide(input, session) {
     p_dest_lng: input.destLng ?? null,
     p_route: input.route ?? null,
     p_distance_km: input.distanceKm ?? null,
+    p_city: input.city ?? 'Chennai',
+    p_corridor: input.corridor ?? null,
   })
   if (error) fail(error, "Couldn't publish that ride.")
   return data?.id

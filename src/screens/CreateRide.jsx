@@ -19,7 +19,7 @@ function defaultDate() {
 const spotByLabel = (l) => SPOTS.find((s) => s.label === l)
 
 export default function CreateRide({ onClose, onCreated }) {
-  const { mode, copy, addRide } = useMode()
+  const { mode, copy, addRide, corridors } = useMode()
   const { profile } = useUser()
   const noun = mode === 'bike' ? 'ride' : 'drive'
   const leadWord = copy.captain // Captain | Lead
@@ -31,6 +31,7 @@ export default function CreateRide({ onClose, onCreated }) {
   const [time, setTime] = useState('06:00')
   const [capacity, setCapacity] = useState('12')
   const [notes, setNotes] = useState('')
+  const [corridor, setCorridor] = useState('')
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
 
@@ -91,6 +92,8 @@ export default function CreateRide({ onClose, onCreated }) {
       status: 'upcoming',
       distanceKm,
       routePath: path,
+      city: 'Chennai',
+      corridor: corridor || null,
       mine: true,
     }
     try {
@@ -159,6 +162,16 @@ export default function CreateRide({ onClose, onCreated }) {
               <Select id="cr-start" label="Meetup point" value={startLabel} onChange={setStartLabel} options={SPOTS.map((s) => s.label)} />
               <Select id="cr-dest" label="Destination" value={destLabel} onChange={setDestLabel} options={destOptions} />
             </div>
+
+            {corridors.length > 0 && (
+              <Select
+                id="cr-corridor"
+                label="Corridor"
+                value={corridor}
+                onChange={setCorridor}
+                options={corridors.map((c) => ({ value: c.id, label: c.name }))}
+              />
+            )}
 
             <div className="grid grid-cols-3 gap-3">
               <div className="float-field has-value">

@@ -15,11 +15,18 @@ const FILTERS = [
 ]
 
 export default function MeetsFeed({ onOpenRide }) {
-  const { mode, copy, rides, loading, error, refresh } = useMode()
+  const { mode, copy, rides, corridors, loading, error, refresh } = useMode()
   const { requireAuth } = useUser()
   const [filter, setFilter] = useState('all')
+  const [corridor, setCorridor] = useState('all')
   const [creating, setCreating] = useState(false)
-  const shown = rides.filter((r) => filter === 'all' || r.status === filter)
+  const shown = rides.filter((r) =>
+    (filter === 'all' || r.status === filter) &&
+    (corridor === 'all' || r.corridor === corridor))
+
+  // Only offer corridors that actually have rides in this world — an empty
+  // filter chip is a dead end that makes the community look thinner than it is.
+  const liveCorridors = corridors.filter((c) => rides.some((r) => r.corridor === c.id))
   const startCreate = () => requireAuth(() => setCreating(true))
 
   return (
@@ -55,6 +62,38 @@ export default function MeetsFeed({ onOpenRide }) {
         </div>
       </Reveal>
 
+      {liveCorridors.length > 1 && (
+        <Reveal delay={60}>
+          <div className="mt-8 flex flex-wrap items-center gap-2">
+            <span className="label-caps mr-1 text-[9px] text-bone/35">Corridor</span>
+            <button
+              onClick={() => setCorridor('all')}
+              className={`label-caps tap cursor-pointer rounded-full px-3.5 py-1.5 text-[10px] transition-all ${
+                corridor === 'all' ? 'bg-bone/12 text-bone' : 'text-bone/45 hover:text-bone'
+              }`}
+            >
+              Everywhere
+            </button>
+            {liveCorridors.map((c) => {
+              const n = rides.filter((r) => r.corridor === c.id).length
+              return (
+                <button
+                  key={c.id}
+                  onClick={() => setCorridor(c.id)}
+                  title={c.description}
+                  className={`label-caps tap cursor-pointer rounded-full px-3.5 py-1.5 text-[10px] transition-all ${
+                    corridor === c.id ? 'bg-accent text-white glow-accent' : 'glass-lite text-bone/55 hover:text-bone'
+                  }`}
+                >
+                  {c.name}
+                  <span className={corridor === c.id ? 'ml-1.5 text-white/70' : 'ml-1.5 text-bone/30'}>{n}</span>
+                </button>
+              )
+            })}
+          </div>
+        </Reveal>
+      )}
+
       {error ? (
         <ErrorState
           title="Couldn't load the feed."
@@ -67,7 +106,17 @@ export default function MeetsFeed({ onOpenRide }) {
         <Reveal delay={100}>
           <div className="mt-16 rounded-3xl border border-dashed border-bone/15 p-16 text-center">
             <p className="font-display text-xl font-bold text-bone/60">Nothing here yet.</p>
-            <p className="mt-2 text-sm text-bone/40">{copy.emptyFeedHint}</p>
+            <p className="mt-2 text-sm text-bone/40">
+              {corridor !== 'all'
+                ? `Nothing on ${corridors.find((c) => c.id === corridor)?.name ?? 'this corridor'} yet — lead the first one.`
+                : copy.emptyFeedHint}
+            </p>
+            {corridor !== 'all' && (
+              <button onClick={() => setCorridor('all')}
+                className="label-caps mt-4 cursor-pointer text-[10px] text-accent hover:underline">
+                Show every corridor
+              </button>
+            )}
           </div>
         </Reveal>
       ) : (
