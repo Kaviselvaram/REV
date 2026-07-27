@@ -15,6 +15,7 @@ const Login      = lazy(() => import('./screens/Login'))
 const Account    = lazy(() => import('./screens/Account'))
 const Legal      = lazy(() => import('./screens/Legal'))
 const Identity   = lazy(() => import('./screens/Identity'))
+const Admin      = lazy(() => import('./screens/Admin'))
 import Cursor from './components/Cursor'
 import ErrorBoundary from './components/ErrorBoundary'
 import { NotFound } from './components/States'
@@ -164,6 +165,14 @@ function InAppHeader({ nav, go, onToggleMode, onSignIn }) {
   const { copy } = useMode()
   const { signedIn, profile } = useUser()
   const [menuOpen, setMenuOpen] = useState(false)
+  const [isMod, setIsMod] = useState(false)
+
+  useEffect(() => {
+    if (!signedIn) { setIsMod(false); return }
+    let alive = true
+    api.amIModerator().then((m) => { if (alive) setIsMod(m) }).catch(() => {})
+    return () => { alive = false }
+  }, [signedIn])
   const menuRef = useRef(null)
 
   useEffect(() => {
@@ -236,6 +245,14 @@ function InAppHeader({ nav, go, onToggleMode, onSignIn }) {
                   >
                     My garage
                   </button>
+                  {isMod && (
+                    <button
+                      onClick={() => { setMenuOpen(false); go('admin') }}
+                      className="block w-full cursor-pointer px-4 py-2.5 text-left text-[13px] text-accent transition-colors hover:bg-bone/8"
+                    >
+                      Moderation queue
+                    </button>
+                  )}
                   <button
                     onClick={() => { setMenuOpen(false); go('legal') }}
                     className="block w-full cursor-pointer px-4 py-2.5 text-left text-[13px] text-bone/75 transition-colors hover:bg-bone/8 hover:text-bone"
@@ -493,6 +510,7 @@ export default function App() {
               onToggleMode={toggleMode}
               onSignIn={() => requireAuth(null)}
               signedIn={signedIn}
+              profile={profile}
             />
           </ModeProvider>
         )}
@@ -506,7 +524,7 @@ export default function App() {
   )
 }
 
-function AppShell({ mode, nav, go, onToggleMode, onSignIn, signedIn }) {
+function AppShell({ mode, nav, go, onToggleMode, onSignIn, signedIn, profile }) {
   const { rides, copy } = useMode()
   const [legalDoc, setLegalDoc] = useState('terms')
   const ride = nav.rideId ? rides.find((r) => r.id === nav.rideId) : null
@@ -527,11 +545,13 @@ function AppShell({ mode, nav, go, onToggleMode, onSignIn, signedIn }) {
       {nav.screen === 'meets' && <MeetsFeed key={`meets-${mode}`} onOpenRide={(id) => go('ride', id)} />}
       {nav.screen === 'account' && <Account onBack={() => go('meets')} onOpenLegal={(d) => { setLegalDoc(d); go('legal') }} />}
       {nav.screen === 'legal' && <Legal doc={legalDoc} onSelect={setLegalDoc} onBack={() => go('meets')} />}
+      {nav.screen === 'admin' && <Admin onBack={() => go('meets')} />}
       {nav.screen === 'identity' && nav.handle && (
         <Identity
           key={`id-${nav.handle}`}
           handle={nav.handle}
           signedIn={signedIn}
+          myHandle={profile?.handle}
           onBack={() => go('meets')}
           onJoin={onSignIn}
         />

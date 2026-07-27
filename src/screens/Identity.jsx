@@ -4,6 +4,7 @@ import { ErrorState, NotFound } from '../components/States'
 import { shareOrCopy, SHARE_MESSAGE } from '../lib/share'
 import { riderCard, shareCardImage } from '../lib/shareCard'
 import * as api from '../lib/api'
+import SafetySheet from './../components/SafetySheet'
 
 /* ---------------------------------------------------------------------------
    The Rider Identity Page — REV's growth loop.
@@ -138,12 +139,14 @@ function MachineCard({ machine }) {
   )
 }
 
-export default function Identity({ handle, onBack, onJoin, signedIn }) {
+export default function Identity({ handle, onBack, onJoin, signedIn, myHandle }) {
   const [rider, setRider] = useState(null)
   const [state, setState] = useState('loading') // loading | ready | missing | error
   const [err, setErr] = useState('')
   const [shareNote, setShareNote] = useState('')
   const [cardBusy, setCardBusy] = useState(false)
+  const [safetyOpen, setSafetyOpen] = useState(false)
+  const [subjectId, setSubjectId] = useState(null)
 
   useEffect(() => {
     let alive = true
@@ -231,6 +234,7 @@ export default function Identity({ handle, onBack, onJoin, signedIn }) {
     return <ErrorState title="Couldn't load that rider." body={err} onBack={onBack} />
   }
 
+  const isMe = myHandle && rider.handle === myHandle
   const rank = RANK_LABEL[rider.captain_rank]
   const asRider = { name: rider.display_name, verified: rider.is_verified }
 
@@ -247,6 +251,20 @@ export default function Identity({ handle, onBack, onJoin, signedIn }) {
           </button>
           <div className="flex items-center gap-2">
             {shareNote && <span className="label-caps text-[10px] text-volt">{shareNote}</span>}
+            {signedIn && !isMe && (
+              <button
+                onClick={async () => {
+                  try { setSubjectId(await api.getMemberIdByHandle(rider.handle)) } catch { /* sheet shows the failure */ }
+                  setSafetyOpen(true)
+                }}
+                aria-label="Report or block this rider"
+                title="Report or block"
+                data-cursor="Safety"
+                className="tap grid h-9 w-9 place-items-center rounded-full text-bone/35 transition-colors hover:bg-bone/8 hover:text-bone/70"
+              >
+                <svg viewBox="0 0 24 24" className="h-4 w-4" fill="currentColor"><circle cx="12" cy="5" r="1.6" /><circle cx="12" cy="12" r="1.6" /><circle cx="12" cy="19" r="1.6" /></svg>
+              </button>
+            )}
             <GhostButton onClick={share} className="!px-4 !py-2 !text-[12px]">Copy link</GhostButton>
             <PrimaryButton
               onClick={shareCard}
@@ -326,6 +344,13 @@ export default function Identity({ handle, onBack, onJoin, signedIn }) {
           )}
         </section>
       </Reveal>
+
+      {safetyOpen && (
+        <SafetySheet
+          member={{ uid: subjectId, display_name: rider.display_name }}
+          onClose={() => { setSafetyOpen(false); setSubjectId(null) }}
+        />
+      )}
 
       {/* the loop: a visitor who is not a member */}
       {!signedIn && (

@@ -440,6 +440,122 @@ async function uploadPublic(bucket, file, session) {
 export const uploadMachinePhoto = (file, session) => uploadPublic('machines', file, session)
 export const uploadAvatar       = (file, session) => uploadPublic('avatars', file, session)
 
+// ------------------------------------------------- trust & safety
+
+/* The public identity projection deliberately omits the member id, so a
+   signed-in member reporting from a rider page needs to resolve the handle
+   first. No new exposure: profiles are already readable to members. */
+export async function getMemberIdByHandle(handle) {
+  const sb = await must()
+  const { data } = await sb.from('profiles').select('id').eq('handle', handle).maybeSingle()
+  return data?.id ?? null
+}
+
+export async function reportMember({ subjectId, reason, detail, rideId }) {
+  const sb = await must()
+  const { error } = await sb.rpc('report_member', {
+    p_subject: subjectId, p_reason: reason, p_detail: detail || null, p_ride: rideId || null,
+  })
+  if (error) fail(error, "Couldn't file that report.")
+}
+
+export async function blockMember(memberId, session) {
+  const sb = await must()
+  const { error } = await sb.from('blocks')
+    .insert({ blocker_id: session?.user?.id, blocked_id: memberId })
+  if (error && error.code !== '23505') fail(error, "Couldn't block that member.")
+}
+
+export async function unblockMember(memberId, session) {
+  const sb = await must()
+  const { error } = await sb.from('blocks').delete()
+    .eq('blocker_id', session?.user?.id).eq('blocked_id', memberId)
+  if (error) fail(error, "Couldn't unblock that member.")
+}
+
+export async function listBlocked(session) {
+  const sb = await must()
+  const uid = session?.user?.id
+  if (!uid) return []
+  const { data, error } = await sb.from('blocks')
+    .select('blocked_id, created_at').eq('blocker_id', uid)
+  if (error) return []
+  if (!data?.length) return []
+  const { data: profiles } = await sb.from('profiles')
+    .select('id, handle, display_name').in('id', data.map((b) => b.blocked_id))
+  return (profiles ?? []).map((p) => ({ ...p, blockedAt: data.find((b) => b.blocked_id === p.id)?.created_at }))
+}
+
+// ------------------------------------------------- SOS & emergency contacts
+
+export async function getEmergencyContacts() {
+  const sb = await must()
+  const { data, error } = await sb.rpc('my_emergency_contacts')
+  if (error) return []
+  return data ?? []
+}
+
+export async function setEmergencyContacts(contacts) {
+  const sb = await must()
+  const { error } = await sb.rpc('set_emergency_contacts', { p_contacts: contacts })
+  if (error) fail(error, "Couldn't save your emergency contacts.")
+}
+
+export async function raiseSos({ rideId, lat, lng, note }) {
+  const sb = await must()
+  const { data, error } = await sb.rpc('raise_sos', {
+    p_ride: rideId ?? null, p_lat: lat ?? null, p_lng: lng ?? null, p_note: note ?? null,
+  })
+  if (error) fail(error, "Couldn't raise the alert.")
+  return data
+}
+
+export async function updateSosLocation(lat, lng) {
+  const sb = await must()
+  await sb.rpc('update_sos_location', { p_lat: lat, p_lng: lng }).catch(() => {})
+}
+
+export async function resolveSos(cancelled = false) {
+  const sb = await must()
+  const { error } = await sb.rpc('resolve_sos', { p_cancelled: cancelled })
+  if (error) fail(error, "Couldn't close the alert.")
+}
+
+export async function getActiveSos(session) {
+  const sb = await must()
+  const uid = session?.user?.id
+  if (!uid) return null
+  const { data } = await sb.from('sos_alerts')
+    .select('*').eq('member_id', uid).eq('status', 'active')
+    .order('raised_at', { ascending: false }).limit(1).maybeSingle()
+  return data ?? null
+}
+
+// ------------------------------------------------- moderation
+
+export async function amIModerator() {
+  const sb = await getClient()
+  if (!sb) return false
+  const { data } = await sb.rpc('am_i_moderator')
+  return data === true
+}
+
+export async function moderationQueue(status = 'open') {
+  const sb = await must()
+  const { data, error } = await sb.rpc('moderation_queue', { p_status: status })
+  if (error) fail(error, "Couldn't load the queue.")
+  return data ?? []
+}
+
+export async function resolveReport({ reportId, status, resolution, suspendDays }) {
+  const sb = await must()
+  const { error } = await sb.rpc('resolve_report', {
+    p_report: reportId, p_status: status,
+    p_resolution: resolution || null, p_suspend_days: suspendDays ?? null,
+  })
+  if (error) fail(error, "Couldn't resolve that report.")
+}
+
 // ---------------------------------------------------------------- chat
 
 export async function listMessages(rideId) {

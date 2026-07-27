@@ -11,6 +11,8 @@ import * as api from '../lib/api'
 import { currentUser } from '../data/mock'
 import RideChat from '../components/RideChat'
 import RosterManager from '../components/RosterManager'
+import SafetySheet from '../components/SafetySheet'
+import SosButton from '../components/SosButton'
 
 const RouteMap = lazy(() => import('../components/RouteMap'))
 
@@ -22,6 +24,7 @@ export default function RideDetail({ ride, onBack, onOpenRecap }) {
   const [rosterOpen, setRosterOpen] = useState(false)
   const [actionError, setActionError] = useState('')
   const [exactPin, setExactPin] = useState(null)
+  const [safetyFor, setSafetyFor] = useState(null)
   const [shareNote, setShareNote] = useState('')
 
   const share = async () => {
@@ -72,6 +75,9 @@ export default function RideDetail({ ride, onBack, onOpenRecap }) {
             {copy.backToFeed}
           </button>
           <div className="flex items-center gap-2">
+            {live && (joined || isLead) && ride.status !== 'completed' && (
+              <SosButton rideId={ride.id} />
+            )}
             {shareNote && <span className="label-caps mr-1 text-[10px] text-volt">{shareNote}</span>}
             <IconButton label="Share" onClick={share}>
               <svg viewBox="0 0 24 24" className="h-4.5 w-4.5" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="18" cy="5" r="3" /><circle cx="6" cy="12" r="3" /><circle cx="18" cy="19" r="3" /><path d="M8.6 13.5l6.8 4M15.4 6.5l-6.8 4" /></svg>
@@ -208,6 +214,17 @@ export default function RideDetail({ ride, onBack, onOpenRecap }) {
                       {isCaptain && (
                         <span className="label-caps rounded-full border border-accent/40 bg-accent/10 px-2.5 py-1 text-[9px] text-accent">{copy.captain}</span>
                       )}
+                      {r.id !== currentUser.id && (
+                        <button
+                          onClick={() => setSafetyFor(r)}
+                          aria-label={`Report or block ${r.name}`}
+                          title="Report or block"
+                          data-cursor="Safety"
+                          className="tap grid h-7 w-7 shrink-0 place-items-center rounded-full text-bone/30 transition-colors hover:bg-bone/8 hover:text-bone/70"
+                        >
+                          <svg viewBox="0 0 24 24" className="h-4 w-4" fill="currentColor"><circle cx="12" cy="5" r="1.6" /><circle cx="12" cy="12" r="1.6" /><circle cx="12" cy="19" r="1.6" /></svg>
+                        </button>
+                      )}
                       {!r.verified && (
                         <span className="label-caps rounded-full border border-bone/15 px-2.5 py-1 text-[9px] text-bone/40">Pending</span>
                       )}
@@ -303,6 +320,15 @@ export default function RideDetail({ ride, onBack, onOpenRecap }) {
 
       {rosterOpen && (
         <RosterManager ride={ride} attendees={attendees} onClose={() => setRosterOpen(false)} />
+      )}
+
+      {safetyFor && (
+        <SafetySheet
+          member={safetyFor}
+          rideId={ride.id}
+          onClose={() => setSafetyFor(null)}
+          onBlocked={() => setSafetyFor(null)}
+        />
       )}
     </div>
   )

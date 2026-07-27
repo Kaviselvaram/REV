@@ -1,6 +1,8 @@
 import { useTilt, useCountUp, useParallax } from '../lib/hooks'
+import { useEffect, useState } from 'react'
 import { useMode } from '../lib/mode'
-import { Eyebrow, PrimaryButton, Reveal, SplitWords, VerifiedBadge } from '../components/ui'
+import * as api from '../lib/api'
+import { FoundingCounter, Eyebrow, PrimaryButton, Reveal, SplitWords, VerifiedBadge } from '../components/ui'
 
 /* ---------- benefit icons ---------- */
 function BenefitIcon({ name, className = 'h-6 w-6' }) {
@@ -223,6 +225,15 @@ export function MembershipStatus() {
 /* ============ ACT — tiers ============ */
 export function MembershipTiers({ onEnter }) {
   const { membership } = useMode()
+  const [founding, setFounding] = useState(null)
+
+  // The scarcity is real or it is not shown — this is the live server count.
+  useEffect(() => {
+    let alive = true
+    api.getFoundingStatus().then((f) => { if (alive) setFounding(f) }).catch(() => {})
+    return () => { alive = false }
+  }, [])
+
   return (
     <section className="wash-accent border-t border-bone/10 bg-asphalt py-28 lg:py-32">
       <div className="mx-auto max-w-7xl px-6 lg:px-12">
@@ -233,6 +244,11 @@ export function MembershipTiers({ onEnter }) {
               Belong at your <em className="serif-italic text-accent">own pace.</em>
             </h2>
           </Reveal>
+          {founding && (
+            <Reveal delay={140}>
+              <FoundingCounter status={founding} className="mx-auto mt-8 max-w-md text-left" />
+            </Reveal>
+          )}
         </div>
         <div className="grid items-stretch gap-5 lg:grid-cols-3">
           {membership.tiers.map((t, i) => (

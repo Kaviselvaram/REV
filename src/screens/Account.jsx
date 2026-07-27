@@ -1,9 +1,11 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import Select from '../components/Select'
 import {
   Avatar, Eyebrow, GhostButton, PrimaryButton, Reveal, VerifiedBadge,
 } from '../components/ui'
 import { useUser } from '../lib/user'
+import * as api from '../lib/api'
+import { isConfigured } from '../lib/supabase'
 import { useMode } from '../lib/mode'
 import { CITIES } from '../data/mock'
 import { LEGAL_DOCS } from './Legal'
@@ -22,12 +24,66 @@ function Row({ label, children }) {
 }
 
 export default function Account({ onBack, onOpenLegal }) {
-  const { profile, signOut, deleteAccount, updateProfile, garage } = useUser()
+  const { profile, session, signOut, deleteAccount, updateProfile, garage } = useUser()
   const { copy } = useMode()
   const [editing, setEditing] = useState(false)
   const [confirmDelete, setConfirmDelete] = useState(false)
   const [deleting, setDeleting] = useState(false)
   const [deleteError, setDeleteError] = useState('')
+
+  // emergency contacts — the people an SOS actually reaches
+  const [contacts, setContacts] = useState([])
+  const [contactsBusy, setContactsBusy] = useState(false)
+  const [contactsNote, setContactsNote] = useState('')
+  const [newName, setNewName] = useState('')
+  const [newPhone, setNewPhone] = useState('')
+
+  // who can see the rider page
+  const [isPublic, setIsPublic] = useState(true)
+  const [blocked, setBlocked] = useState([])
+
+  useEffect(() => {
+    if (!isConfigured || !session) return
+    let alive = true
+    api.getEmergencyContacts().then((c) => { if (alive) setContacts(c ?? []) }).catch(() => {})
+    api.listBlocked(session).then((b) => { if (alive) setBlocked(b ?? []) }).catch(() => {})
+    return () => { alive = false }
+  }, [session])
+
+  const saveContacts = async (next) => {
+    setContactsBusy(true); setContactsNote('')
+    try {
+      await api.setEmergencyContacts(next)
+      setContacts(next)
+      setContactsNote('Saved')
+      setTimeout(() => setContactsNote(''), 2200)
+    } catch (e) { setContactsNote(e.message) } finally { setContactsBusy(false) }
+  }
+
+  const addContact = () => {
+    const digits = newPhone.replace(/\D/g, '')
+    if (newName.trim().length < 2 || digits.length !== 10) {
+      setContactsNote('Enter a name and a 10-digit number.')
+      return
+    }
+    saveContacts([...contacts, { name: newName.trim(), phone: `+91${digits}` }])
+    setNewName(''); setNewPhone('')
+  }
+
+  const removeContact = (i) => saveContacts(contacts.filter((_, k) => k !== i))
+
+  const toggleVisibility = async (next) => {
+    setIsPublic(next)
+    try { await api.setProfileVisibility(next, session) }
+    catch { setIsPublic(!next) }
+  }
+
+  const unblock = async (id) => {
+    try {
+      await api.unblockMember(id, session)
+      setBlocked((b) => b.filter((x) => x.id !== id))
+    } catch { /* the row simply stays */ }
+  }
 
   const [name, setName] = useState(profile?.name ?? '')
   const [handle, setHandle] = useState(profile?.handle ?? '')
@@ -180,6 +236,87 @@ export default function Account({ onBack, onOpenLegal }) {
         </section>
       </Reveal>
 
+      {/* safety */}
+      <Reveal delay={165}>
+        <section className="card-3d mt-6 rounded-3xl">
+          <div className="card-face p-6 sm:p-7">
+            <h2 className="font-display text-lg font-medium tracking-tight text-bone">Safety</h2>
+            <p className="mt-1.5 text-[13px] leading-relaxed text-bone/55">
+              If you raise an SOS during a ride, REV shares your live location with these people —
+              and only them, only for the length of the alert.
+            </p>
+
+            <div className="mt-4">
+              {contacts.length === 0 ? (
+                <p className="text-[13px] text-bone/40">No emergency contacts yet.</p>
+              ) : (
+                <ul className="divide-y divide-bone/8">
+                  {contacts.map((c, i) => (
+                    <li key={i} className="flex items-center justify-between gap-3 py-2.5">
+                      <span className="min-w-0">
+                        <span className="block truncate text-[13.5px] text-bone">{c.name}</span>
+                        <span className="block text-[11.5px] tabular-nums text-bone/40">{c.phone}</span>
+                      </span>
+                      <button onClick={() => removeContact(i)}
+                        className="label-caps shrink-0 cursor-pointer text-[9px] text-bone/40 hover:text-accent">
+                        Remove
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
+
+            <div className="mt-4 grid gap-2.5 sm:grid-cols-[1fr_1fr_auto]">
+              <div className="float-field">
+                <input id="ec-name" value={newName} onChange={(e) => setNewName(e.target.value)}
+                       placeholder=" " maxLength={40} />
+                <label htmlFor="ec-name">Their name</label>
+              </div>
+              <div className="float-field">
+                <input id="ec-phone" value={newPhone} inputMode="numeric"
+                       onChange={(e) => setNewPhone(e.target.value.replace(/\D/g, '').slice(0, 10))}
+                       placeholder=" " />
+                <label htmlFor="ec-phone">Their number</label>
+              </div>
+              <GhostButton onClick={addContact}
+                className={`!px-5 !py-2.5 !text-[13px] ${contactsBusy ? '!opacity-50 pointer-events-none' : ''}`}>
+                Add
+              </GhostButton>
+            </div>
+            {contactsNote && <p className="mt-2 text-[12px] text-volt">{contactsNote}</p>}
+          </div>
+        </section>
+      </Reveal>
+
+      {/* blocked members */}
+      {blocked.length > 0 && (
+        <Reveal delay={175}>
+          <section className="card-3d mt-6 rounded-3xl">
+            <div className="card-face p-6 sm:p-7">
+              <h2 className="font-display text-lg font-medium tracking-tight text-bone">Blocked</h2>
+              <p className="mt-1.5 text-[13px] text-bone/55">
+                Neither of you can join a ride the other leads.
+              </p>
+              <ul className="mt-4 divide-y divide-bone/8">
+                {blocked.map((b) => (
+                  <li key={b.id} className="flex items-center justify-between gap-3 py-2.5">
+                    <span className="min-w-0">
+                      <span className="block truncate text-[13.5px] text-bone">{b.display_name}</span>
+                      <span className="block text-[11.5px] text-bone/40">@{b.handle}</span>
+                    </span>
+                    <button onClick={() => unblock(b.id)}
+                      className="label-caps shrink-0 cursor-pointer text-[9px] text-bone/40 hover:text-bone">
+                      Unblock
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          </section>
+        </Reveal>
+      )}
+
       {/* privacy & data */}
       <Reveal delay={190}>
         <section className="card-3d mt-6 rounded-3xl">
@@ -188,6 +325,22 @@ export default function Account({ onBack, onOpenLegal }) {
             <p className="mt-1.5 text-[13px] leading-relaxed text-bone/55">
               Rights guaranteed by the Digital Personal Data Protection Act, 2023.
             </p>
+
+            <label className="mt-5 flex cursor-pointer items-start justify-between gap-4 rounded-2xl border border-bone/10 p-4">
+              <span className="min-w-0">
+                <span className="block text-[13.5px] font-semibold text-bone">Public rider page</span>
+                <span className="block text-[12px] leading-snug text-bone/50">
+                  When on, anyone with your link can see your rider page — machines, marks and ride
+                  record. Your number, date of birth and home location are never on it.
+                </span>
+              </span>
+              <input
+                type="checkbox"
+                checked={isPublic}
+                onChange={(e) => toggleVisibility(e.target.checked)}
+                className="mt-1 h-5 w-5 shrink-0 cursor-pointer accent-[var(--accent)]"
+              />
+            </label>
 
             <div className="mt-5 flex flex-wrap gap-2">
               {LEGAL_DOCS.map((d) => (

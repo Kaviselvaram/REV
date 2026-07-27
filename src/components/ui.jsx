@@ -221,3 +221,35 @@ export function formatRideTime(iso) {
   const d = new Date(iso)
   return d.toLocaleTimeString('en-IN', { hour: 'numeric', minute: '2-digit', hour12: true }).toUpperCase()
 }
+
+// ---------- Founding window counter ----------
+// Scarcity only works if it is visible and true. This reads the live count from
+// the server; it is never a hardcoded number, and it disappears once the window
+// closes rather than lingering as decoration.
+export function FoundingCounter({ status, className = '' }) {
+  if (!status) return null
+  const { cap, issued, remaining, is_open: isOpen } = status
+  const pct = Math.min(100, Math.round((issued / cap) * 100))
+
+  return (
+    <div className={`rounded-2xl border border-accent/25 bg-accent/5 p-5 ${className}`}>
+      <div className="flex flex-wrap items-baseline justify-between gap-2">
+        <span className="label-caps text-[10px] text-accent">
+          {isOpen ? 'Founding members' : 'Founding window closed'}
+        </span>
+        <span className="font-display text-sm text-bone/70 tabular-nums">
+          {issued} / {cap}
+        </span>
+      </div>
+      <div className="mt-3 h-1.5 overflow-hidden rounded-full bg-bone/10">
+        <div className="h-full rounded-full bg-accent transition-[width] duration-700"
+             style={{ width: `${pct}%` }} />
+      </div>
+      <p className="mt-3 text-[12.5px] leading-relaxed text-bone/60">
+        {isOpen
+          ? `${remaining} founding numbers left. Yours is permanent, sequential, and never reissued — the window closes when it fills.`
+          : 'Every founding number has been claimed. They are not reissued.'}
+      </p>
+    </div>
+  )
+}
