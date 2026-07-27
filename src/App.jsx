@@ -305,7 +305,7 @@ export default function App() {
   // reference that id, keep working exactly as before — only the identity
   // shown on screen becomes real.
   const [profile, setProfile] = useState(null)
-  const [garage, setGarage] = useState({ bike: null, car: null })
+  const [garage, setGarage] = useState({ bike: [], car: [] })
   const authCbRef = useRef(null)
   const sessionRef = useRef(null)
   const [session, setSession] = useState(null) // drives ModeProvider's live mode
@@ -353,7 +353,7 @@ export default function App() {
         prev?.access_token === s?.access_token ? prev : s)
       if (!s) {
         setProfile(null)
-        setGarage({ bike: null, car: null })
+        setGarage({ bike: [], car: [] })
       }
     })
   }, [])
@@ -388,7 +388,7 @@ export default function App() {
     sessionRef.current = null
     setSession(null)
     setProfile(null)
-    setGarage({ bike: null, car: null })
+    setGarage({ bike: [], car: [] })
   }
 
   // Actually erases the account. This used to call signOut, which meant the
@@ -398,7 +398,7 @@ export default function App() {
     sessionRef.current = null
     setSession(null)
     setProfile(null)
-    setGarage({ bike: null, car: null })
+    setGarage({ bike: [], car: [] })
   }
 
   const updateProfile = (patch) => {
@@ -410,19 +410,51 @@ export default function App() {
     }
   }
 
-  const saveVehicle = (m, vehicle) => {
-    setGarage((g) => ({ ...g, [m]: vehicle })) // optimistic
-    if (isConfigured && sessionRef.current) {
-      api.saveVehicle(m, vehicle, sessionRef.current)
-        .then((saved) => saved && setGarage((g) => ({ ...g, [m]: saved })))
-        .catch(() => {})
+  const saveVehicle = async (m, vehicle) => {
+    if (!isConfigured) {
+      // prototype mode keeps the same array shape so screens do not branch
+      setGarage((g) => {
+        const list = g[m] ?? []
+        const next = vehicle.id
+          ? list.map((v) => (v.id === vehicle.id ? { ...v, ...vehicle } : v))
+          : [...list, { ...vehicle, id: `local-${Date.now()}`, isPrimary: list.length === 0 }]
+        return { ...g, [m]: next }
+      })
+      return
     }
+    await api.saveVehicle(m, vehicle, sessionRef.current)
+    setGarage(await api.getMyVehicles(sessionRef.current))
   }
-  const getVehicle = (m) => garage[m]
+
+  const removeVehicle = async (m, vehicleId) => {
+    if (!isConfigured) {
+      setGarage((g) => ({ ...g, [m]: (g[m] ?? []).filter((v) => v.id !== vehicleId) }))
+      return
+    }
+    await api.deleteVehicle(vehicleId)
+    setGarage(await api.getMyVehicles(sessionRef.current))
+  }
+
+  const makePrimaryVehicle = async (m, vehicleId) => {
+    if (!isConfigured) {
+      setGarage((g) => ({
+        ...g,
+        [m]: (g[m] ?? []).map((v) => ({ ...v, isPrimary: v.id === vehicleId })),
+      }))
+      return
+    }
+    await api.setPrimaryVehicle(vehicleId, m, sessionRef.current)
+    setGarage(await api.getMyVehicles(sessionRef.current))
+  }
+
+  // getVehicle keeps its old meaning — "their machine in this world" — and
+  // answers with the primary one, so existing callers are unaffected.
+  const getVehicle = (m) => (garage[m] ?? [])[0] ?? null
+  const getVehicles = (m) => garage[m] ?? []
   const userValue = {
     signedIn, profile, session, phone: profile?.phone ?? '',
     requireAuth, signOut, deleteAccount, updateProfile,
-    garage, saveVehicle, getVehicle,
+    garage, saveVehicle, removeVehicle, makePrimaryVehicle, getVehicle, getVehicles,
   }
 
   // Keep the global accent in sync with the mode so fixed elements rendered

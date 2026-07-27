@@ -13,7 +13,9 @@ import { createContext, useContext } from 'react'
 //                 and runs it after verification
 //   signOut       clears the session and the garage
 //   updateProfile (patch) => merges into profile
-//   garage        { bike, car } — the saved machine per world
+//   garage        { bike: [...], car: [...] } — machines per world, primary first
+//   getVehicle    (mode) => the primary machine in that world, or null
+//   getVehicles   (mode) => every machine in that world
 //
 // profile.id stays 'me' so ride rosters, which reference that id, keep
 // working unchanged — only the identity shown on screen becomes real.

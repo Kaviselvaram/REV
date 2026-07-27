@@ -115,7 +115,9 @@ export default function Account({ onBack, onOpenLegal }) {
     setEditing(false)
   }
 
-  const vehicleCount = [garage.bike, garage.car].filter(Boolean).length
+  // garage holds a list per world now — counting the arrays themselves would
+  // always give 2
+  const vehicleCount = (garage.bike?.length ?? 0) + (garage.car?.length ?? 0)
 
   return (
     <div className="screen-enter mx-auto max-w-3xl px-6 pb-32 pt-10 lg:px-10">

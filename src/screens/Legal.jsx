@@ -106,6 +106,70 @@ const DOCS = {
     ],
   },
 
+  charter: {
+    label: 'Ride Charter',
+    intro:
+      'Every captain accepts this before they can create a ride, and every rider is held to it. ' +
+      'It is the standard REV expects on the road. REV does not organise or supervise rides — ' +
+      'the captain leads, and each rider is responsible for themselves.',
+    sections: [
+      {
+        h: 'Before you roll',
+        p: [
+          'Ride only what you are licensed to ride, on a vehicle that is registered, insured and holds a valid PUC certificate where the law requires one.',
+          'Full gear. A helmet always; gloves, shoes and a jacket are expected on any ride leaving the city.',
+          'Fuel up before the meeting point. A group waiting at a pump is a group riding in a hurry afterwards.',
+          'If you are unwell, exhausted, or have had anything to drink, do not ride. Tell the captain and go home. Nobody will think less of you.',
+        ],
+      },
+      {
+        h: 'On the road',
+        p: [
+          'Obey every traffic law. Speed limits, signals and lane discipline are not suspended because you are in a group.',
+          'No racing, no time trials, no stunting. REV is not the place to organise or promote any of it, and a captain who allows it will lose their standing.',
+          'Ride in staggered formation. Do not overtake the captain. Do not ride in anyone else\'s blind spot.',
+          'Ride your own ride. Never ride faster than you are comfortable with to keep up with the group — a good group waits.',
+          'The sweep rider is the last rider. Nobody is left behind them.',
+        ],
+      },
+      {
+        h: 'What a captain owes the group',
+        p: [
+          'Set the pace, the route and the stops, and brief them before flag-off.',
+          'Name a sweep rider and make sure everyone knows who it is.',
+          'Turn away anyone who is impaired, unlicensed, or on an unroadworthy vehicle. This is not optional.',
+          'Carry a first-aid kit, and know the nearest hospital on the route.',
+          'Account for everyone at every stop before moving on.',
+        ],
+      },
+      {
+        h: 'What every rider owes the group',
+        p: [
+          'Turn up if you said you would. A no-show is a seat someone else wanted.',
+          'Arrive on time and fuelled. The group leaves at the stated time.',
+          'Look after the rider behind you at every turn, so nobody is lost.',
+          'Treat every member with respect, on the road and in the chat.',
+        ],
+      },
+      {
+        h: 'If something goes wrong',
+        p: [
+          'Stop. Call 112 first — police, fire and ambulance. REV is not an emergency service and cannot dispatch help.',
+          'Raise an SOS in the app so your nominated emergency contacts get your live location.',
+          'Do not move an injured rider unless they are in immediate danger.',
+          'Tell REV afterwards. We record it, and it informs how the community is kept safe.',
+        ],
+      },
+      {
+        h: 'Breaking this charter',
+        p: [
+          'Riding dangerously, riding impaired, or putting other members at risk will cost you your place in the community — captains and riders alike.',
+          'REV reviews every report and may suspend or permanently remove an account. Where it is safe and lawful, we will tell you why.',
+        ],
+      },
+    ],
+  },
+
   privacy: {
     label: 'Privacy Policy',
     intro:

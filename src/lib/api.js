@@ -144,6 +144,8 @@ export async function deleteAccount() {
 
 const toVehicle = (row) => row && ({
   id: row.id,
+  mode: row.mode,
+  isPrimary: row.is_primary,
   make: row.make,
   model: row.model,
   year: row.year ? String(row.year) : '',
@@ -152,23 +154,42 @@ const toVehicle = (row) => row && ({
   mods: row.mods ?? [],
   rideStyle: row.ride_style ?? '',
   styleLabel: row.ride_style ?? '',
-  photos: row.photo_paths ?? [],
+  photos: (row.photo_paths ?? []).map((ph) => {
+    if (typeof ph !== 'string') return ph
+    // tolerate rows written before photo_paths was normalised to plain URLs
+    if (ph.startsWith('{')) { try { return JSON.parse(ph).src } catch { return null } }
+    return ph
+  }).filter(Boolean),
 })
 
+/* A rider can keep several machines in a world — a Himalayan and a
+   Continental GT are two different identities, not one row to overwrite. The
+   shape stays { bike: [...], car: [...] } with the primary first, so callers
+   that want "their bike" take [0] and callers that want all of them iterate. */
 export async function getMyVehicles(session) {
   const sb = await must()
   const uid = session?.user?.id
-  if (!uid) return { bike: null, car: null }
-  const { data, error } = await sb.from('vehicles').select('*').eq('owner_id', uid).eq('is_primary', true)
+  if (!uid) return { bike: [], car: [] }
+  const { data, error } = await sb.from('vehicles').select('*')
+    .eq('owner_id', uid)
+    .order('is_primary', { ascending: false })
+    .order('created_at', { ascending: true })
   if (error) fail(error, "Couldn't load your garage.")
-  const out = { bike: null, car: null }
-  for (const row of data ?? []) out[row.mode] = toVehicle(row)
+  const out = { bike: [], car: [] }
+  for (const row of data ?? []) out[row.mode]?.push(toVehicle(row))
   return out
 }
 
 export async function saveVehicle(mode, vehicle, session) {
   const sb = await must()
   const uid = session?.user?.id
+
+  // The first machine in a world becomes the primary one; later ones do not
+  // displace it unless the member says so.
+  const { count } = await sb.from('vehicles')
+    .select('id', { count: 'exact', head: true })
+    .eq('owner_id', uid).eq('mode', mode)
+
   const row = {
     owner_id: uid,
     mode,
@@ -178,20 +199,43 @@ export async function saveVehicle(mode, vehicle, session) {
     extra: vehicle.extra || null,
     mods: vehicle.mods ?? [],
     ride_style: vehicle.rideStyle || vehicle.styleLabel || null,
-    photo_paths: vehicle.photos ?? [],
-    is_primary: true,
+    // The wizard carries photos as { id, src } so it can key and remove them;
+    // the column is text[] of URLs. Without this the object is coerced to
+    // JSON and stored as a string that is not a usable image source.
+    photo_paths: (vehicle.photos ?? [])
+      .map((ph) => (typeof ph === 'string' ? ph : ph?.src))
+      .filter(Boolean),
   }
-  // one primary machine per world — replace rather than accumulate
-  const { data: existing } = await sb.from('vehicles')
-    .select('id').eq('owner_id', uid).eq('mode', mode).eq('is_primary', true).maybeSingle()
 
-  const q = existing
-    ? sb.from('vehicles').update(row).eq('id', existing.id).select().single()
-    : sb.from('vehicles').insert(row).select().single()
+  let q
+  if (vehicle.id) {
+    q = sb.from('vehicles').update(row).eq('id', vehicle.id).select().single()
+  } else {
+    q = sb.from('vehicles').insert({ ...row, is_primary: (count ?? 0) === 0 }).select().single()
+  }
 
   const { data, error } = await q
   if (error) fail(error, "Couldn't save your machine.")
   return toVehicle(data)
+}
+
+export async function deleteVehicle(vehicleId) {
+  const sb = await must()
+  const { error } = await sb.from('vehicles').delete().eq('id', vehicleId)
+  if (error) fail(error, "Couldn't remove that machine.")
+}
+
+/* Exactly one primary per world is a partial unique index, so the old primary
+   has to be stood down before the new one is raised or the index rejects it. */
+export async function setPrimaryVehicle(vehicleId, mode, session) {
+  const sb = await must()
+  const uid = session?.user?.id
+  const { error: clearErr } = await sb.from('vehicles')
+    .update({ is_primary: false })
+    .eq('owner_id', uid).eq('mode', mode).eq('is_primary', true)
+  if (clearErr) fail(clearErr, "Couldn't update your garage.")
+  const { error } = await sb.from('vehicles').update({ is_primary: true }).eq('id', vehicleId)
+  if (error) fail(error, "Couldn't set that as your main machine.")
 }
 
 // Community directory for a world: every member, plus the machine they keep
@@ -439,6 +483,23 @@ async function uploadPublic(bucket, file, session) {
 
 export const uploadMachinePhoto = (file, session) => uploadPublic('machines', file, session)
 export const uploadAvatar       = (file, session) => uploadPublic('avatars', file, session)
+
+// ------------------------------------------------- ride charter
+
+export async function getCharterStatus() {
+  const sb = await getClient()
+  if (!sb) return { version: '1.0', accepted: true }  // prototype mode: nothing to gate against
+  const { data, error } = await sb.rpc('charter_status')
+  if (error) return { version: null, accepted: false }
+  return data ?? { version: null, accepted: false }
+}
+
+export async function acceptCharter() {
+  const sb = await must()
+  const { data, error } = await sb.rpc('accept_charter')
+  if (error) fail(error, "Couldn't record your acceptance.")
+  return data
+}
 
 // ------------------------------------------------- trust & safety
 

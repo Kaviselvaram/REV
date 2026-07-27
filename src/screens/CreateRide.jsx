@@ -1,10 +1,12 @@
-import { Suspense, lazy, useMemo, useState } from 'react'
+import { Suspense, lazy, useEffect, useMemo, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { useMode } from '../lib/mode'
 import { useUser } from '../lib/user'
 import { SPOTS, buildRoutePath, routeDistanceKm, currentUser } from '../data/mock'
 import Select from '../components/Select'
 import { Avatar, Eyebrow, GhostButton, PrimaryButton, VerifiedBadge } from '../components/ui'
+import { LegalOverlay } from './Legal'
+import * as api from '../lib/api'
 
 const RouteMap = lazy(() => import('../components/RouteMap'))
 
@@ -32,13 +34,36 @@ export default function CreateRide({ onClose, onCreated }) {
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
 
+  // The charter gate. REV is not the organiser of these rides, and that
+  // position only holds if every captain accepted a written standard before
+  // leading. The server refuses create_ride without it — this is the surface.
+  const [charter, setCharter] = useState(null)   // { version, accepted }
+  const [charterDoc, setCharterDoc] = useState(false)
+  const [accepting, setAccepting] = useState(false)
+
+  useEffect(() => {
+    let alive = true
+    api.getCharterStatus().then((c) => { if (alive) setCharter(c) }).catch(() => {})
+    return () => { alive = false }
+  }, [])
+
+  const acceptCharter = async () => {
+    if (accepting) return
+    setAccepting(true); setError('')
+    try {
+      const version = await api.acceptCharter()
+      setCharter({ version, accepted: true })
+    } catch (e) { setError(e.message) } finally { setAccepting(false) }
+  }
+
   const start = spotByLabel(startLabel)
   const dest = destLabel && destLabel !== '— Static meet (no destination) —' ? spotByLabel(destLabel) : null
   const path = useMemo(() => (start ? buildRoutePath(start, dest) : null), [startLabel, destLabel])
   const distanceKm = path ? routeDistanceKm(path) : 0
 
   const capNum = parseInt(capacity, 10)
-  const valid = title.trim().length >= 3 && start && !Number.isNaN(capNum) && capNum >= 2 && capNum <= 60 && date && time
+  const charterOk = charter?.accepted !== false
+  const valid = title.trim().length >= 3 && start && !Number.isNaN(capNum) && capNum >= 2 && capNum <= 60 && date && time && charterOk
 
   const preview = start && {
     // id changes with the chosen route so the preview map re-inits on each pick
@@ -156,6 +181,33 @@ export default function CreateRide({ onClose, onCreated }) {
             </div>
           </div>
 
+          {charter && !charter.accepted && (
+            <div className="mt-4 rounded-2xl border border-accent/30 bg-accent/6 p-4">
+              <p className="font-display text-[14px] font-semibold text-bone">
+                Before you lead, accept the Ride Charter
+              </p>
+              <p className="mt-1.5 text-[12.5px] leading-relaxed text-bone/65">
+                The standard every REV captain rides to — gear, formation, pace, and what you owe
+                the group. Riders who join you are held to it too.
+              </p>
+              <div className="mt-3 flex flex-wrap items-center gap-2">
+                <button
+                  onClick={() => setCharterDoc(true)}
+                  className="label-caps cursor-pointer rounded-full glass-lite px-4 py-2 text-[10px] text-bone/70 hover:text-bone"
+                >
+                  Read it
+                </button>
+                <button
+                  onClick={acceptCharter}
+                  data-cursor="Accept"
+                  className={`label-caps tap cursor-pointer rounded-full bg-accent px-4 py-2 text-[10px] text-white ${accepting ? 'opacity-50 pointer-events-none' : ''}`}
+                >
+                  {accepting ? 'Recording…' : 'I accept the charter'}
+                </button>
+              </div>
+            </div>
+          )}
+
           {error && <p className="mt-3 text-xs text-accent">{error}</p>}
 
           <div className="mt-5 flex items-center justify-between gap-3">
@@ -172,6 +224,7 @@ export default function CreateRide({ onClose, onCreated }) {
           </div>
         </div>
       </div>
+      {charterDoc && <LegalOverlay doc="charter" onClose={() => setCharterDoc(false)} />}
     </div>,
     document.body,
   )
