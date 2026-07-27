@@ -19,6 +19,7 @@ const Admin      = lazy(() => import('./screens/Admin'))
 import Cursor from './components/Cursor'
 import ErrorBoundary from './components/ErrorBoundary'
 import { NotFound } from './components/States'
+import NotificationBell from './components/NotificationBell'
 import { Avatar, ModeSwitch } from './components/ui'
 import { useScrollProgress } from './lib/hooks'
 import { ModeProvider, useMode } from './lib/mode'
@@ -206,6 +207,10 @@ function InAppHeader({ nav, go, onToggleMode, onSignIn }) {
             )
           })}
           <span className="mx-1 hidden sm:block"><ModeSwitch onToggle={onToggleMode} /></span>
+
+          {signedIn && (
+            <span className="ml-1"><NotificationBell onOpenRide={(id) => go('ride', id)} /></span>
+          )}
 
           {signedIn ? (
             <span ref={menuRef} className="relative ml-1">

@@ -604,6 +604,42 @@ export async function getActiveSos(session) {
   return data ?? null
 }
 
+// ------------------------------------------------- notifications
+
+export async function listNotifications(limit = 30) {
+  const sb = await must()
+  const { data, error } = await sb.from('notifications')
+    .select('*').order('created_at', { ascending: false }).limit(limit)
+  if (error) fail(error, "Couldn't load your notifications.")
+  return data ?? []
+}
+
+export async function markNotificationsRead(ids = null) {
+  const sb = await must()
+  const { error } = await sb.rpc('mark_notifications_read', { p_ids: ids })
+  if (error) fail(error, "Couldn't update your notifications.")
+}
+
+/* Realtime, filtered to this member. RLS applies to the stream too, so the
+   filter is a bandwidth optimisation rather than the security boundary. */
+export function subscribeNotifications(memberId, onInsert) {
+  if (!isConfigured || !memberId) return () => {}
+  let cleanup = null
+  let cancelled = false
+  getClient().then((sb) => {
+    if (cancelled) return
+    const channel = sb
+      .channel(`notifications:${memberId}`)
+      .on('postgres_changes',
+          { event: 'INSERT', schema: 'public', table: 'notifications',
+            filter: `member_id=eq.${memberId}` },
+          (payload) => onInsert(payload.new))
+      .subscribe()
+    cleanup = () => sb.removeChannel(channel)
+  })
+  return () => { cancelled = true; if (cleanup) cleanup() }
+}
+
 // ------------------------------------------------- moderation
 
 export async function amIModerator() {
