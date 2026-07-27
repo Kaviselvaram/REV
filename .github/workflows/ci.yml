@@ -1,0 +1,47 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Lint
+        run: npx oxlint src/
+
+      # Proves the guard still refuses a release build that points at staging
+      # or leaves the development sign-in stub on. If this step ever passes,
+      # the protection has been removed and the job fails loudly.
+      - name: Release guard blocks an unsafe build
+        run: |
+          if VITE_SUPABASE_URL=https://safwykqfsczxvtvxzzzr.supabase.co \
+             VITE_SUPABASE_PUBLISHABLE_KEY=sb_publishable_ci \
+             VITE_DEV_AUTH=true \
+             npx vite build --outDir dist-ci-unsafe >/dev/null 2>&1; then
+            echo "::error::Release guard did not block an unsafe build."
+            exit 1
+          fi
+          echo "Guard correctly refused."
+
+      - name: Production build
+        env:
+          VITE_SUPABASE_URL: https://ronqiihqsxopcfyvkvyx.supabase.co
+          VITE_SUPABASE_PUBLISHABLE_KEY: ${{ secrets.VITE_SUPABASE_PUBLISHABLE_KEY || 'sb_publishable_ci_placeholder' }}
+        run: npm run build
+
+      - name: No secret-shaped strings in the bundle
+        run: |
+          if grep -rIlE "service_role|sb_secret_|-----BEGIN" dist/assets/ 2>/dev/null; then
+            echo "::error::A secret-shaped string reached the bundle."
+            exit 1
+          fi
+          echo "Bundle clean."
