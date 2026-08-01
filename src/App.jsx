@@ -572,7 +572,11 @@ function AppShell({ mode, nav, go, onToggleMode, onSignIn, signedIn, profile }) 
 
   return (
     <div className={`grain min-h-screen mode-${mode}`} style={{ '--accent': ACCENTS[mode] }}>
+      {/* Without this a keyboard user tabs the entire header on every screen
+          before reaching anything they came for. */}
+      <a href="#main" className="skip-link">Skip to content</a>
       {inApp && <InAppHeader nav={nav} go={go} onToggleMode={onToggleMode} onSignIn={onSignIn} />}
+      <main id="main" tabIndex={-1}>
       <Suspense fallback={<ScreenFallback />}>
 
       {nav.screen === 'landing' && (
@@ -612,6 +616,7 @@ function AppShell({ mode, nav, go, onToggleMode, onSignIn, signedIn, profile }) 
         </>
       )}
       </Suspense>
+      </main>
     </div>
   )
 }

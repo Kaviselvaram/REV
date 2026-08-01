@@ -173,17 +173,24 @@ export default function RideChat({ ride, canChat }) {
               value={draft}
               onChange={(e) => setDraft(e.target.value)}
               onKeyDown={(e) => e.key === 'Enter' && send()}
+              aria-label={`Message the roster of ${ride.title}`}
+              disabled={sending}
               placeholder="Message the roster…"
               className="min-w-0 flex-1 rounded-full border border-bone/12 bg-white/60 px-4 py-2.5 text-sm text-bone outline-none transition-colors focus:border-accent/50"
             />
             <button
               onClick={send}
-              disabled={!draft.trim()}
+              disabled={!draft.trim() || sending}
               data-cursor="Send"
-              aria-label="Send"
+              aria-label={sending ? 'Sending' : 'Send'}
+              aria-busy={sending}
               className="tap grid h-10 w-10 shrink-0 place-items-center rounded-full bg-accent text-white transition-opacity disabled:opacity-30"
             >
-              <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"><path d="M22 2L11 13M22 2l-7 20-4-9-9-4z" /></svg>
+              {sending ? (
+                <span className="block h-3.5 w-3.5 animate-spin rounded-full border-2 border-white/35 border-t-white" />
+              ) : (
+                <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"><path d="M22 2L11 13M22 2l-7 20-4-9-9-4z" /></svg>
+              )}
             </button>
           </div>
         </>

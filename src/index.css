@@ -740,3 +740,44 @@ body {
 @media (prefers-reduced-motion: reduce) {
   .skeleton { animation: none; background-position: 50% 0; }
 }
+
+/* ---------- Keyboard focus ----------
+   Several inputs set `outline-none` to get the bespoke border treatment, which
+   also removed the only indicator a keyboard user has of where they are. This
+   restores one for keyboard navigation specifically: `:focus-visible` does not
+   fire on a mouse click, so the ring never appears during ordinary pointer use
+   and the design is unaffected.
+
+   Placed late and scoped to interactive elements so it wins over the utility
+   classes without needing !important. */
+:where(a, button, input, textarea, select, summary, [tabindex]):focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+  border-radius: inherit;
+}
+
+/* Inputs already carry a border, so a ring reads better than an outline that
+   fights the rounded field edge. */
+:where(input, textarea):focus-visible {
+  outline: none;
+  border-color: color-mix(in srgb, var(--accent) 60%, transparent);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 18%, transparent);
+}
+
+/* A keyboard user must be able to reach the content without tabbing the whole
+   header on every screen. */
+.skip-link {
+  position: absolute;
+  left: 1rem;
+  top: -3rem;
+  z-index: 100;
+  padding: 0.55rem 1rem;
+  border-radius: 999px;
+  background: var(--accent);
+  color: #fff;
+  font-size: 0.78rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  transition: top 0.18s ease;
+}
+.skip-link:focus { top: 1rem; }
